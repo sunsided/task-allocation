@@ -357,6 +357,23 @@ impl<V: Valuation<TaskId>> Agent<V> {
         }
     }
 
+    /// Gives up `task` and every task added after it, forgetting this agent's own bids on
+    /// all of them; returns whether `task` was in the bundle.
+    pub(crate) fn give_up(&mut self, task: TaskId) -> bool {
+        let Some(index) = self.bundle.index_of(&task) else {
+            return false;
+        };
+
+        for released in self.bundle.release_from(index) {
+            let claim = &mut self.claims[released.index()];
+            if claim.winner == Some(self.id) {
+                *claim = Claim::NONE;
+            }
+        }
+
+        true
+    }
+
     /// Drops the first task in the bundle this agent no longer wins, and everything added
     /// after it, forgetting its own bids on the later ones; returns whether anything was
     /// dropped.
