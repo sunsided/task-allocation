@@ -1,0 +1,59 @@
+//! Allocation check: how much one CBBA round allocates on the colony workload.
+//!
+//! This is its own test binary because it replaces the global allocator with a counting one,
+//! and it holds a single test so no other test allocates while a region is measured. The
+//! budgets sit about 10% above today's counts; issue #17 tracks bringing them down, and each
+//! improvement should lower them.
+
+use std::alloc::System;
+
+use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
+use task_allocation::cbba::Agent;
+use task_allocation::sim::Simulation;
+
+/// The colony workload, shared with the colony benchmark.
+#[path = "../../benches/support/colony.rs"]
+mod colony;
+
+use colony::{JOBS, Plan, WARM_UP_ROUNDS, WORKERS, colony, negotiation};
+
+/// Counts every allocation, so the test can measure a region.
+#[global_allocator]
+static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
+
+/// The most allocations a round mid negotiation may make.
+const BUSY_BUDGET: usize = 31_000;
+
+/// The most allocations a round of a settled team may make.
+const SETTLED_BUDGET: usize = 5_100;
+
+/// The allocations and bytes of one round of `simulation`.
+fn allocations_of_one_round(simulation: &mut Simulation<Agent<Plan>>) -> (usize, usize) {
+    let region = Region::new(GLOBAL);
+    simulation.step();
+    let stats = region.change();
+
+    (stats.allocations, stats.bytes_allocated)
+}
+
+/// One round stays within its allocation budget, mid negotiation and once settled.
+#[test]
+fn rounds_stay_within_their_allocation_budget() {
+    let mut simulation = negotiation(&colony());
+    for _ in 0..WARM_UP_ROUNDS {
+        simulation.step();
+    }
+
+    let (busy, busy_bytes) = allocations_of_one_round(&mut simulation);
+    simulation.run_until_settled(10_000).expect("settles");
+    let (settled, settled_bytes) = allocations_of_one_round(&mut simulation);
+
+    println!(
+        "cbba round, {WORKERS} x {JOBS}: {busy} allocations ({busy_bytes} bytes) mid negotiation, {settled} ({settled_bytes} bytes) once settled"
+    );
+    assert!(busy <= BUSY_BUDGET, "{busy} allocations mid negotiation");
+    assert!(
+        settled <= SETTLED_BUDGET,
+        "{settled} allocations once settled"
+    );
+}
