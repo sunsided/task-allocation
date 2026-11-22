@@ -3,13 +3,13 @@
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use task_allocation::cbba::Agent;
+use task_allocation::cbba::{Agent, Replan};
 use task_allocation::centralized::optimal;
 use task_allocation::sim::{Network, Partition, Simulation, Topology};
 use task_allocation::{AgentId, Assignment, TaskId, Valuation};
 
 use crate::bundle::gains_replay;
-use crate::support::{self, Instance, instance_sized, instance_with};
+use crate::support::{self, Instance, instance_sized, instance_with, is_greedy_outcome};
 
 /// The most agents in a generated team; enough for messages relayed through third parties.
 const MAX_TEAM: usize = 6;
@@ -85,7 +85,7 @@ fn with_network(
 }
 
 /// A CBBA team for `instance`.
-fn team(instance: &Instance) -> Vec<Agent<support::Agent>> {
+fn team(instance: &Instance, replan: Replan) -> Vec<Agent<support::Agent>> {
     let size = instance.agents.len();
 
     instance
@@ -101,6 +101,7 @@ fn team(instance: &Instance) -> Vec<Agent<support::Agent>> {
                 instance.capacity,
                 valuation,
             )
+            .with_replan(replan)
         })
         .collect()
 }
@@ -108,13 +109,24 @@ fn team(instance: &Instance) -> Vec<Agent<support::Agent>> {
 /// Runs CBBA for `instance` on `network` until it settles; `None` when it does not settle
 /// within [`SETTLE_TICKS`] of the last partition healing.
 fn run(instance: &Instance, network: Network) -> Option<Simulation<support::Agent>> {
+    run_with(instance, network, Replan::Keep)
+}
+
+/// Runs CBBA for `instance` on `network`, with every agent replanning as `replan` says,
+/// until it settles; `None` when it does not settle within [`SETTLE_TICKS`] of the last
+/// partition healing.
+fn run_with(
+    instance: &Instance,
+    network: Network,
+    replan: Replan,
+) -> Option<Simulation<support::Agent>> {
     let healed = network
         .partitions
         .iter()
         .map(|partition| partition.until)
         .max()
         .unwrap_or(0);
-    let mut simulation = Simulation::new(team(instance), network);
+    let mut simulation = Simulation::new(team(instance, replan), network);
     simulation.run_until_settled(healed + SETTLE_TICKS)?;
 
     Some(simulation)
@@ -184,6 +196,38 @@ fn nobody_can_outbid(
     Ok(())
 }
 
+/// Checks everything a settled team promises: no conflicts, agreement on winners and bids,
+/// honest bids, and no agent able to outbid a winner.
+fn stable(
+    simulation: &Simulation<support::Agent>,
+    instance: &Instance,
+) -> Result<(), TestCaseError> {
+    let assignment = simulation.assignment();
+
+    prop_assert!(assignment.is_conflict_free());
+    agrees_with(simulation, &assignment)?;
+    nobody_can_outbid(simulation, instance)?;
+    for (agent, valuation) in instance.agents.iter().enumerate() {
+        prop_assert!(assignment.bundle(AgentId(agent)).len() <= instance.capacity);
+        gains_replay(valuation, assignment.bundle(AgentId(agent)))?;
+    }
+
+    Ok(())
+}
+
+/// Checks that `simulation` stays settled, with the same assignment, for 20 more ticks.
+fn stays_settled(simulation: &mut Simulation<support::Agent>) -> Result<(), TestCaseError> {
+    let assignment = simulation.assignment();
+    for _ in 0..20 {
+        simulation.step();
+        prop_assert!(simulation.is_settled());
+    }
+
+    prop_assert_eq!(simulation.assignment(), assignment);
+
+    Ok(())
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
@@ -223,6 +267,33 @@ proptest! {
         for (agent, valuation) in instance.agents.iter().enumerate() {
             gains_replay(valuation, assignment.bundle(AgentId(agent)))?;
         }
+    }
+
+    /// With a full replan before every bundle phase, runs settle on a stable assignment
+    /// that some run of the sequential greedy assignment reaches, breaking ties in some
+    /// order.
+    #[test]
+    fn full_replan_reaches_a_greedy_outcome((instance, network) in scenario()) {
+        let Some(mut simulation) = run_with(&instance, network, Replan::Full) else {
+            return Err(TestCaseError::fail("did not settle"));
+        };
+
+        stable(&simulation, &instance)?;
+        stays_settled(&mut simulation)?;
+        let holders = holders(&simulation.assignment(), instance.tasks);
+        prop_assert!(is_greedy_outcome(&instance, &holders), "{:?}", holders);
+    }
+
+    /// Releasing only the last few tasks before every bundle phase still settles on a
+    /// stable assignment.
+    #[test]
+    fn partial_replan_settles((instance, network) in scenario(), last in 1_usize..4) {
+        let Some(mut simulation) = run_with(&instance, network, Replan::Last(last)) else {
+            return Err(TestCaseError::fail("did not settle"));
+        };
+
+        stable(&simulation, &instance)?;
+        stays_settled(&mut simulation)?;
     }
 
     /// Once settled, nothing changes, however long the team keeps talking.
@@ -269,22 +340,7 @@ fn holders(assignment: &Assignment, tasks: usize) -> Vec<Option<AgentId>> {
 /// and 11), and agent 0 task 2: a total of 131 rather than 129.
 #[test]
 fn blocked_slot_differs_from_greedy() {
-    let instance = Instance {
-        agents: vec![
-            support::Agent::Coverage(support::Coverage {
-                covers: vec![81, 172, 156, 182, 141],
-                weights: vec![15, 14, 3, 8, 11, 10, 14, 12],
-                allowed: 2_422_693_623,
-            }),
-            support::Agent::Coverage(support::Coverage {
-                covers: vec![107, 198, 184, 161, 28],
-                weights: vec![18, 19, 10, 1, 9, 8, 15, 11],
-                allowed: 2_274_905_959,
-            }),
-        ],
-        tasks: 5,
-        capacity: 4,
-    };
+    let instance = blocked_slot_instance();
 
     let simulation = run(&instance, Network::default()).expect("settles");
     let greedy = task_allocation::centralized::sequential_greedy(&instance.agents, 5, 4);
@@ -347,4 +403,36 @@ fn tied_gains_can_differ_from_greedy() {
     assert_eq!(greedy.holder(TaskId(0)), Some(AgentId(0)));
     assert_eq!(cbba.holder(TaskId(0)), Some(AgentId(2)));
     assert_eq!(holders(&greedy, 6)[1..], holders(&cbba, 6)[1..]);
+}
+
+/// A full replan frees the blocked slot: the same instance reaches the greedy assignment.
+#[test]
+fn full_replan_frees_the_blocked_slot() {
+    let instance = blocked_slot_instance();
+    let simulation = run_with(&instance, Network::default(), Replan::Full).expect("settles");
+    let greedy = task_allocation::centralized::sequential_greedy(&instance.agents, 5, 4);
+
+    assert_eq!(holders(&simulation.assignment(), 5), holders(&greedy, 5));
+    assert_eq!(simulation.assignment().value(), 131);
+}
+
+/// Two coverage agents where agent 1 fills a slot while a bid of agent 0 that is later
+/// withdrawn blocks a better task.
+fn blocked_slot_instance() -> Instance {
+    Instance {
+        agents: vec![
+            support::Agent::Coverage(support::Coverage {
+                covers: vec![81, 172, 156, 182, 141],
+                weights: vec![15, 14, 3, 8, 11, 10, 14, 12],
+                allowed: 2_422_693_623,
+            }),
+            support::Agent::Coverage(support::Coverage {
+                covers: vec![107, 198, 184, 161, 28],
+                weights: vec![18, 19, 10, 1, 9, 8, 15, 11],
+                allowed: 2_274_905_959,
+            }),
+        ],
+        tasks: 5,
+        capacity: 4,
+    }
 }

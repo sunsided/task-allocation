@@ -2,7 +2,7 @@
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use task_allocation::{BestInsertion, Insertion, PathScore, TaskId, Valuation};
+use task_allocation::{AgentId, BestInsertion, Insertion, PathScore, TaskId, Valuation};
 
 /// The most tasks a generated instance has; keeps the exhaustive optimum fast.
 pub const MAX_TASKS: usize = 6;
@@ -227,4 +227,80 @@ pub fn instance_sized(max_agents: usize, max_tasks: usize) -> impl Strategy<Valu
             tasks,
             capacity,
         })
+}
+
+/// Whether some run of the sequential greedy assignment, breaking ties between equally
+/// valuable picks in some order, gives every task to the agent `holders` names.
+///
+/// Searches every tied choice that agrees with `holders`, so it is exponential in the number
+/// of ties; generated instances have few.
+pub fn is_greedy_outcome(instance: &Instance, holders: &[Option<AgentId>]) -> bool {
+    let mut paths: Vec<Vec<TaskId>> = vec![Vec::new(); instance.agents.len()];
+
+    greedy_run_exists(instance, holders, &mut paths)
+}
+
+/// Continues greedy runs from `paths` (each agent's path so far); see [`is_greedy_outcome`].
+fn greedy_run_exists(
+    instance: &Instance,
+    holders: &[Option<AgentId>],
+    paths: &mut [Vec<TaskId>],
+) -> bool {
+    let picks = best_picks(instance, paths);
+    let Some(&(_, _, gain)) = picks.first() else {
+        return (0..instance.tasks).all(|task| {
+            let held_by = paths.iter().position(|path| path.contains(&TaskId(task)));
+            held_by.map(AgentId) == holders[task]
+        });
+    };
+
+    debug_assert!(gain > 0);
+    picks
+        .into_iter()
+        .filter(|&(agent, task, _)| holders[task.index()] == Some(agent))
+        .any(|(agent, task, _)| {
+            let insertion = instance.agents[agent.index()]
+                .best_insertion(&paths[agent.index()], &task)
+                .expect("picks are feasible");
+            paths[agent.index()].insert(insertion.position, task);
+            let found = greedy_run_exists(instance, holders, paths);
+            paths[agent.index()].retain(|held| *held != task);
+
+            found
+        })
+}
+
+/// Every pick, as agent, task and gain, tied for the highest positive gain among agents with
+/// room left and unassigned tasks; empty when no pick gains anything.
+fn best_picks(instance: &Instance, paths: &[Vec<TaskId>]) -> Vec<(AgentId, TaskId, u64)> {
+    let assigned = |task: TaskId| paths.iter().any(|path| path.contains(&task));
+    let mut picks = Vec::new();
+    let mut best = 0;
+
+    for (index, agent) in instance.agents.iter().enumerate() {
+        let path = &paths[index];
+        if path.len() >= instance.capacity {
+            continue;
+        }
+
+        for task in (0..instance.tasks)
+            .map(TaskId)
+            .filter(|&task| !assigned(task))
+        {
+            let Some(insertion) = agent.best_insertion(path, &task) else {
+                continue;
+            };
+
+            if insertion.gain > best {
+                best = insertion.gain;
+                picks.clear();
+            }
+
+            if insertion.gain == best && best > 0 {
+                picks.push((AgentId(index), task, insertion.gain));
+            }
+        }
+    }
+
+    picks
 }

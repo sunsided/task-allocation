@@ -28,7 +28,9 @@
 //! How, as restated by Buckman, Choi and How, 2019). With this implementation that often
 //! holds, but not always: an agent outbid by a bid that is later withdrawn may already have
 //! filled the slot with another task, and keeps it; and equal gains can be resolved in a
-//! different order. The tests pin both cases, the first with a step-by-step trace.
+//! different order. The tests pin both cases, the first with a step-by-step trace. Agents
+//! that [replan](Replan::Full), releasing their bundle before every bundle phase, free such
+//! slots, and settle on a sequential greedy assignment for some order of tied gains.
 //!
 //! The algorithm is from Choi, Brunet and How, "Consensus-Based Decentralized Auctions for
 //! Robust Task Allocation", IEEE Transactions on Robotics 25(4), 2009. Its state and release
@@ -124,6 +126,35 @@ pub struct Agent<V> {
 
     /// Every task identifier, in order: the candidates of the bundle phase.
     tasks: Vec<TaskId>,
+
+    /// How much of its bundle this agent releases before each bundle phase.
+    replan: Replan,
+}
+
+/// How much of its bundle an agent releases before each bundle phase, to reconsider it.
+///
+/// With [`Replan::Keep`], an agent only ever adds to its bundle, so a slot it filled while
+/// a since-withdrawn bid blocked a better task stays filled. Releasing the bundle and
+/// rebuilding it against the current winners frees such slots. With diminishing marginal
+/// gains and every task known from the start, the team then settles on the
+/// [sequential greedy assignment](crate::centralized::sequential_greedy), up to the order of
+/// tied gains (Buckman, Choi and How, "Partial Replanning for Decentralized Dynamic Task
+/// Allocation", AIAA `SciTech` 2019, <https://arxiv.org/abs/1806.04836>).
+///
+/// Releasing only the tasks added last trades that coordination for fewer changes per round,
+/// for example when tasks arrive over time.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Replan {
+    /// Keep the bundle and only add to it: CBBA as published in 2009.
+    #[default]
+    Keep,
+
+    /// Release the whole bundle and rebuild it from scratch.
+    Full,
+
+    /// Release the given number of tasks added last, which under diminishing gains carry
+    /// the lowest bids, and rebuild from there.
+    Last(usize),
 }
 
 impl<V: Valuation<TaskId>> Agent<V> {
@@ -148,47 +179,81 @@ impl<V: Valuation<TaskId>> Agent<V> {
             claims: vec![Claim::NONE; tasks],
             seen: vec![0; agents],
             tasks: (0..tasks).map(TaskId).collect(),
+            replan: Replan::Keep,
         }
     }
 
-    /// The bundle phase: adds the most valuable tasks this agent can win until its bundle is
-    /// full or nothing is left to win; returns the number of tasks added.
+    /// This agent, releasing part of its bundle before every bundle phase as `replan` says.
+    ///
+    /// The default, [`Replan::Keep`], is CBBA as published in 2009.
+    #[must_use]
+    pub const fn with_replan(mut self, replan: Replan) -> Self {
+        self.replan = replan;
+        self
+    }
+
+    /// The bundle phase: releases what [`Replan`] says, then adds the most valuable tasks
+    /// this agent can win until its bundle is full or nothing is left to win; returns the
+    /// number of tasks added after the release.
     ///
     /// Each added task's bid is its marginal gain, and this agent becomes its winner in its
     /// own tables.
     pub fn build_bundle(&mut self) -> usize {
-        let id = self.id;
-        let claims = &self.claims;
-        let before = self.bundle.len();
-        self.bundle
-            .extend_greedily(&self.valuation, &self.tasks, self.capacity, |task, gain| {
-                Self::wins(id, claims, *task, gain)
-            });
+        let (bundle, claims, added) = self.rebuilt();
+        self.bundle = bundle;
+        self.claims = claims;
 
-        for (task, gain) in self.bundle.entries().skip(before) {
-            self.claims[task.index()] = Claim {
+        added
+    }
+
+    /// Whether the bundle phase would change anything now: this agent would add a task, or,
+    /// when it replans, rebuild its bundle differently.
+    #[must_use]
+    pub fn can_bid(&self) -> bool {
+        let (bundle, claims, _) = self.rebuilt();
+
+        bundle != self.bundle || claims != self.claims
+    }
+
+    /// The bundle and winner tables the bundle phase would produce, and how many tasks it
+    /// would add after the release.
+    fn rebuilt(&self) -> (Bundle<TaskId>, Vec<Claim>, usize) {
+        let mut bundle = self.bundle.clone();
+        let mut claims = self.claims.clone();
+        self.release_for_replan(&mut bundle, &mut claims);
+
+        let id = self.id;
+        let before = bundle.len();
+        bundle.extend_greedily(&self.valuation, &self.tasks, self.capacity, |task, gain| {
+            Self::wins(id, &claims, *task, gain)
+        });
+
+        for (task, gain) in bundle.entries().skip(before) {
+            claims[task.index()] = Claim {
                 winner: Some(id),
                 bid: gain,
             };
         }
 
-        self.bundle.len() - before
+        let added = bundle.len() - before;
+        (bundle, claims, added)
     }
 
-    /// Whether the bundle phase would add a task now: this agent has room left and can
-    /// outbid the best known bid on some task.
-    #[must_use]
-    pub fn can_bid(&self) -> bool {
-        let id = self.id;
-        let claims = &self.claims;
+    /// Releases the tasks [`Replan`] says from `bundle`, forgetting this agent's own bids on
+    /// them in `claims`.
+    fn release_for_replan(&self, bundle: &mut Bundle<TaskId>, claims: &mut [Claim]) {
+        let keep = match self.replan {
+            Replan::Keep => return,
+            Replan::Full => 0,
+            Replan::Last(count) => bundle.len().saturating_sub(count),
+        };
 
-        self.bundle.len() < self.capacity
-            && self
-                .bundle
-                .best_candidate(&self.valuation, &self.tasks, |task, gain| {
-                    Self::wins(id, claims, *task, gain)
-                })
-                .is_some()
+        for task in bundle.release_from(keep) {
+            let claim = &mut claims[task.index()];
+            if claim.winner == Some(self.id) {
+                *claim = Claim::NONE;
+            }
+        }
     }
 
     /// Whether agent `id`, bidding `gain` on `task`, beats the best bid in `claims`.

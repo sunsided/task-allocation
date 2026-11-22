@@ -134,7 +134,9 @@ assert_eq!(assignment.holder(TaskId(2)), Some(AgentId(1)));
 ```
 
 On real hardware, call `build_bundle` and `message` on every round and pass each message
-that arrives to `receive`.
+that arrives to `receive`. Agents created with `.with_replan(Replan::Full)` rebuild their
+bundles from scratch every round, which costs more computation, and settle on the same
+assignment as the centralized sequential greedy one.
 
 The crate is `no_std`, needs `alloc`, and has no runtime dependencies.
 
