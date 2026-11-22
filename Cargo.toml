@@ -27,7 +27,12 @@ exclude = [
 [dependencies]
 
 [dev-dependencies]
+heuristic-search = "0.2"
 proptest = "1.12"
+rand_pcg = "0.10"
+resource-timeline = "0.1"
+sampling-planning = "0.1"
+temporal-control = "0.1"
 
 [package.metadata.docs.rs]
 all-features = true
