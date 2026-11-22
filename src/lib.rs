@@ -12,6 +12,11 @@
 //! - [`Bundle`]: the tasks one agent holds, in the order it took them on and in execution
 //!   order, built greedily from marginal gains.
 //! - [`Assignment`]: one bundle per agent, the result of every allocation algorithm.
+//! - [`cbba`]: the consensus-based bundle algorithm. Each [`cbba::Agent`] builds its bundle,
+//!   broadcasts its view of every task's winner, and merges what it hears, until the team
+//!   agrees on a conflict-free assignment.
+//! - [`sim`]: a deterministic simulated network with delays, losses and partitions, to run
+//!   teams on.
 //! - [`centralized`]: reference allocations with full knowledge of every valuation: the
 //!   sequential greedy assignment and the exhaustive optimum for small instances.
 //!
@@ -58,8 +63,10 @@ extern crate alloc;
 
 mod assignment;
 mod bundle;
+pub mod cbba;
 pub mod centralized;
 mod id;
+pub mod sim;
 mod valuation;
 
 pub use assignment::Assignment;

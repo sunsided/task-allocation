@@ -205,7 +205,12 @@ pub fn coverage_instance() -> impl Strategy<Value = Instance> {
 
 /// A random instance with up to [`MAX_AGENTS`] agents and [`MAX_TASKS`] tasks.
 pub fn instance() -> impl Strategy<Value = Instance> {
-    (1..=MAX_TASKS, 1..=MAX_AGENTS)
+    instance_with(MAX_AGENTS)
+}
+
+/// A random instance with up to `max_agents` agents and [`MAX_TASKS`] tasks.
+pub fn instance_with(max_agents: usize) -> impl Strategy<Value = Instance> {
+    (1..=MAX_TASKS, 1..=max_agents)
         .prop_flat_map(|(tasks, agents)| (Just(tasks), Just(agents), 1..=tasks))
         .prop_flat_map(|(tasks, agents, capacity)| {
             sites(tasks).prop_flat_map(move |sites| {

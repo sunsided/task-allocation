@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc a16f2d43ad99dfba80c4bc9d6a1ad9185b3fe04269af41fc4175ff697e559971 # shrinks to (instance, network) = (Instance { agents: [Courier(BestInsertion(Courier { start: 0, sites: [Site { position: 36, duration: 12, deadline: 108 }, Site { position: 83, duration: 11, deadline: 66 }, Site { position: 28, duration: 19, deadline: 20 }, Site { position: 1, duration: 15, deadline: 263 }, Site { position: 34, duration: 13, deadline: 108 }, Site { position: 74, duration: 7, deadline: 93 }], rewards: [25, 29, 27, 25, 26, 3] })), Coverage(Coverage { covers: [76, 46, 70, 124, 12, 79], weights: [16, 19, 13, 14, 15, 11, 7, 5], allowed: 2458217047 }), Coverage(Coverage { covers: [198, 43, 46, 145, 40, 155], weights: [8, 9, 3, 10, 1, 18, 13, 17], allowed: 3524159223 })], tasks: 6, capacity: 6 }, Network { seed: 2654629530903845431, max_delay: 0, loss_per_mille: 0, partitions: [] })
+cc 229a89adcf8a857bf2eb5c1dbafb2cd32f4d50ee767df0aedff27f19e04ea4c2 # shrinks to (instance, network) = (Instance { agents: [Coverage(Coverage { covers: [81, 172, 156, 182, 141], weights: [15, 14, 3, 8, 11, 10, 14, 12], allowed: 2422693623 }), Coverage(Coverage { covers: [107, 198, 184, 161, 28], weights: [18, 19, 10, 1, 9, 8, 15, 11], allowed: 2274905959 })], tasks: 5, capacity: 4 }, Network { seed: 843325382020866860, max_delay: 0, loss_per_mille: 0, partitions: [] })
