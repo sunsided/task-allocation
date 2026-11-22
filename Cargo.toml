@@ -1,7 +1,7 @@
 [package]
 name = "task-allocation"
 description = "Decentralized multi-agent task allocation: consensus-based bundle algorithm (CBBA) and auctions that converge to conflict-free assignments over delayed, intermittent communication"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Markus Mayer <widemeadows@gmail.com>"]
