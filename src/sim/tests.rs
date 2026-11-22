@@ -113,7 +113,7 @@ fn agents_must_be_in_order() {
 /// A team without agents has nothing to agree on.
 #[test]
 fn empty_team_is_settled() {
-    let simulation: Simulation<Skewed> = Simulation::new(Vec::new(), Network::default());
+    let simulation: Simulation<Agent<Skewed>> = Simulation::new(Vec::new(), Network::default());
 
     assert!(simulation.is_settled());
     assert_eq!(simulation.assignment().agents(), 0);
