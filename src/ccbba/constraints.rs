@@ -216,9 +216,10 @@ impl Constraints {
         Ok(())
     }
 
-    /// Sets the opening of `task`'s time window, the earliest it may start. Agents that
-    /// conflict over two mutually dependent tasks compare how far into their windows they
-    /// start, and the earlier one gives way.
+    /// Sets the opening of `task`'s time window, the earliest it may start. A
+    /// [`TimedAgent`](super::TimedAgent) never starts the task earlier. Agents that conflict
+    /// over two mutually dependent tasks compare how far into their windows they start, and
+    /// the earlier one gives way.
     ///
     /// # Panics
     ///

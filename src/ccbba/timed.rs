@@ -261,8 +261,8 @@ impl<R: Route> TimedAgent<R> {
         self.agent.can_bid() || self.own_starts_would_move()
     }
 
-    /// Computes every task's window from the starts of the tasks it depends on, as this
-    /// agent knows them, and hands them to the route.
+    /// Computes every task's window from its opening and the starts of the tasks it depends
+    /// on, as this agent knows them, and hands them to the route.
     fn refresh_windows(&self) {
         let gate = self.agent.inner.valuation();
         let view = gate.view.borrow();
@@ -272,7 +272,7 @@ impl<R: Route> TimedAgent<R> {
 
         for (index, window) in windows.iter_mut().enumerate() {
             let task = TaskId(index);
-            let mut earliest: i128 = 0;
+            let mut earliest = i128::from(constraints.opening(task));
             let mut latest: Option<i128> = None;
             for other in constraints.requirements(task) {
                 let (Some(_), Some(start)) =
@@ -498,5 +498,21 @@ mod tests {
         assert_eq!(message.start(TaskId(0)), Some(5));
         assert_eq!(message.claims().winner(TaskId(0)), Some(AgentId(0)));
         assert!(!agent.can_bid());
+    }
+
+    /// A task never starts before the opening of its window.
+    #[test]
+    fn openings_hold_back_the_start() {
+        let optimism = Optimism {
+            timeout: 1,
+            solo_attempts: 1,
+            any_attempts: 1,
+        };
+        let mut constraints = Constraints::new(1);
+        constraints.set_opening(TaskId(0), 20);
+        let mut agent = TimedAgent::new(AgentId(0), 1, 1, 1, Point, constraints, optimism);
+        agent.build_bundle();
+
+        assert_eq!(agent.start(TaskId(0)), Some(20));
     }
 }
