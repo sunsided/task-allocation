@@ -138,6 +138,30 @@ that arrives to `receive`.
 
 The crate is `no_std`, needs `alloc`, and has no runtime dependencies.
 
+## Examples
+
+Each example pairs the allocation with a sibling crate, without making it a dependency of
+this one:
+
+- [`warehouse_grid`](https://github.com/sunsided/task-allocation/blob/main/examples/warehouse_grid.rs):
+  robots on a floor plan, with travel times from A* in
+  [heuristic-search](https://github.com/sunsided/heuristic-search), agreeing over a lossy
+  network.
+- [`relay_timing`](https://github.com/sunsided/task-allocation/blob/main/examples/relay_timing.rs):
+  rovers' plans checked against a handoff between them as a simple temporal network in
+  [temporal-control](https://github.com/sunsided/temporal-control), and reallocated with a
+  tighter deadline when they miss it.
+- [`drone_battery`](https://github.com/sunsided/task-allocation/blob/main/examples/drone_battery.rs):
+  each drone's battery reserve checked inside its valuation with
+  [resource-timeline](https://github.com/sunsided/resource-timeline), and a shared uplink
+  checked across all drones afterwards.
+- [`field_rrt`](https://github.com/sunsided/task-allocation/blob/main/examples/field_rrt.rs):
+  travel around an obstacle from RRT* in
+  [sampling-planning](https://github.com/sunsided/sampling-planning), comparing CBBA with the
+  auctions, sequential greedy and the optimum.
+
+Run one with `cargo run --release --example warehouse_grid`.
+
 ## Minimum supported Rust version
 
 Rust 1.85 (edition 2024). The MSRV applies to the library; tests may need a newer

@@ -19,7 +19,8 @@ needs before it can be merged.
    - [actionlint](https://github.com/rhysd/actionlint) and [zizmor](https://docs.zizmor.sh/);
    - the `thumbv7em-none-eabihf` target (`rustup target add thumbv7em-none-eabihf`) for the
      `no_std` build.
-4. The crate has no runtime dependencies, so a plain clone builds. This library tracks no lock file;
+4. The crate has no runtime dependencies, so a plain clone builds. The examples use sibling
+   planning crates as dev-dependencies. This library tracks no lock file;
    CI resolves fresh from crates.io.
 5. Install the git hooks with [prek](https://prek.j178.dev/) (`prek install`), or with
    `pre-commit install`. Fast checks run on commit; clippy and tests run on push.
