@@ -4,7 +4,7 @@ use proptest::prelude::*;
 use task_allocation::centralized::{optimal, sequential_greedy};
 use task_allocation::{AgentId, Assignment, Bundle, TaskId, Valuation};
 
-use crate::support::{Instance, instance};
+use crate::support::{Instance, coverage_instance, instance};
 
 /// Builds an assignment by giving tasks to agents in the order `picks` lists them, skipping
 /// tasks already given, agents at capacity and infeasible insertions.
@@ -55,13 +55,15 @@ proptest! {
         prop_assert!(greedy.value() <= best.value());
     }
 
-    /// With diminishing gains, greedy scores at least half the optimum.
+    /// For submodular valuations, greedy scores at least half the optimum without a capacity
+    /// limit, and at least a third with one.
     #[test]
-    fn greedy_scores_half_the_optimum(instance in instance()) {
+    fn greedy_approximates_submodular_optima(instance in coverage_instance()) {
         let greedy = sequential_greedy(&instance.agents, instance.tasks, instance.capacity);
         let best = optimal(&instance.agents, instance.tasks, instance.capacity);
+        let factor = if instance.capacity >= instance.tasks { 2 } else { 3 };
 
-        prop_assert!(2 * greedy.value() >= best.value(), "{} vs {}", greedy.value(), best.value());
+        prop_assert!(factor * greedy.value() >= best.value(), "{} vs {}", greedy.value(), best.value());
     }
 
     /// No assignment built in any order beats the optimum.

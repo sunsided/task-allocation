@@ -3,8 +3,8 @@
 //! A valuation has *diminishing marginal gains* (DMG) when adding work never makes another
 //! task more valuable: for every path `p`, every task `k` added to it and every other task
 //! `j`, the gain of `j` after `p + k` is at most its gain after `p`. A task that was
-//! infeasible stays infeasible. CBBA relies on this to converge to the sequential greedy
-//! assignment, which scores at least half the optimum.
+//! infeasible stays infeasible. CBBA relies on this to converge: without it, agents can
+//! outbid each other forever.
 
 use alloc::vec::Vec;
 use core::fmt;
