@@ -201,3 +201,11 @@ fn defaults_start_at_zero_without_waiting() {
     );
     assert_eq!((visits[1].finish, visits[1].reward), (2, 4));
 }
+
+/// Halving rounds the interpolated value down.
+#[test]
+fn halving_rounds_down() {
+    assert_eq!(halving(1, 1, 2), 0);
+    assert_eq!(halving(100, 15, 10), 37);
+    assert_eq!(halving(3, 1, 2), 2);
+}

@@ -1,8 +1,9 @@
 //! Common shapes of time-dependent rewards, for [`Route::reward`](super::Route::reward).
 //!
 //! Each takes the full reward, the finish time and the shape's parameters, and returns what
-//! the task is worth at that finish time, or `None` when it is too late. None of them grows
-//! with later finish times.
+//! the task is worth at that finish time. [`deadline`] and [`linear_decay`] return `None`
+//! when it is too late; wrap [`halving`] in `Some`. None of them grows with later finish
+//! times.
 
 /// The full `reward` up to and including `deadline`, and `None` after it.
 ///
@@ -61,7 +62,7 @@ pub fn linear_decay(reward: u64, finish: u64, from: u64, until: u64) -> Option<u
 ///
 /// assert_eq!(halving(100, 0, 10), 100);
 /// assert_eq!(halving(100, 10, 10), 50);
-/// assert_eq!(halving(100, 15, 10), 38);
+/// assert_eq!(halving(100, 15, 10), 37);
 /// assert_eq!(halving(100, 20, 10), 25);
 /// ```
 #[must_use]
@@ -78,7 +79,7 @@ pub fn halving(reward: u64, finish: u64, half_life: u64) -> u64 {
     let high = reward >> halvings;
     let low = high / 2;
     let into = u128::from(finish % half_life);
-    let drop = u128::from(high - low) * into / u128::from(half_life);
+    let drop = (u128::from(high - low) * into).div_ceil(u128::from(half_life));
 
     // The drop is at most `high - low`, so it always fits.
     high - u64::try_from(drop).unwrap_or(high - low)
