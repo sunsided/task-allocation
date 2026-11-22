@@ -173,20 +173,24 @@ impl<R: Route> Timed<R> {
     #[must_use]
     pub fn schedule(&self, path: &[TaskId]) -> Option<Vec<Visit>> {
         let mut visits = Vec::with_capacity(path.len());
-        self.walk(path, |visit| visits.push(visit))?;
+        self.walk(path.iter().copied(), |visit| visits.push(visit))?;
 
         Some(visits)
     }
 
     /// Walks `path`, calling `visit` for each task in order; returns the total reward, or
     /// `None` as soon as a place is unreachable or a task finishes too late.
-    fn walk(&self, path: &[TaskId], mut visit: impl FnMut(Visit)) -> Option<u64> {
+    fn walk(
+        &self,
+        path: impl IntoIterator<Item = TaskId>,
+        mut visit: impl FnMut(Visit),
+    ) -> Option<u64> {
         let route = &self.0;
         let mut at = route.origin();
         let mut clock = route.departure();
         let mut total: u64 = 0;
 
-        for &task in path {
+        for task in path {
             let place = route.place(task);
             let arrival = clock.saturating_add(route.travel(&at, &place)?);
             let start = arrival.max(route.earliest_start(task));
@@ -211,7 +215,26 @@ impl<R: Route> Timed<R> {
 
 impl<R: Route> PathScore<TaskId> for Timed<R> {
     fn path_score(&self, path: &[TaskId]) -> Option<u64> {
-        self.walk(path, |_| {})
+        self.walk(path.iter().copied(), |_| {})
+    }
+
+    /// Walks each candidate path straight from `path` and `task`, without building it.
+    fn insertion_scores(
+        &self,
+        path: &[TaskId],
+        task: &TaskId,
+        each: &mut dyn FnMut(usize, Option<u64>),
+    ) {
+        for position in (0..=path.len()).rev() {
+            let (before, after) = path.split_at(position);
+            let candidate = before
+                .iter()
+                .copied()
+                .chain(core::iter::once(*task))
+                .chain(after.iter().copied());
+
+            each(position, self.walk(candidate, |_| {}));
+        }
     }
 }
 

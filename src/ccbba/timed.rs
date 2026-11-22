@@ -165,6 +165,10 @@ type Scheduled<R> = BestInsertion<Timed<Windowed<R>>>;
 pub struct TimedAgent<R> {
     /// The CCBBA agent, bidding with the windowed route.
     agent: Agent<Scheduled<R>>,
+
+    /// The conflict table's action for each task of the last message, reused across
+    /// messages so receiving does not allocate.
+    actions: Vec<(TaskId, Action)>,
 }
 
 impl<R: Route> TimedAgent<R> {
@@ -201,6 +205,7 @@ impl<R: Route> TimedAgent<R> {
                 constraints,
                 optimism,
             ),
+            actions: Vec::with_capacity(tasks),
         }
     }
 
@@ -227,7 +232,12 @@ impl<R: Route> TimedAgent<R> {
     /// The consensus phase for one message: CBBA's, adopting the sender's start for every
     /// task whose claim it takes. Returns whether anything changed.
     pub fn receive(&mut self, message: &TimedMessage) -> bool {
-        let Some((changed, actions)) = self.agent.inner.receive_with_actions(&message.claims)
+        let actions = &mut self.actions;
+        actions.clear();
+        let Some(changed) = self
+            .agent
+            .inner
+            .receive_with_actions(&message.claims, |task, action| actions.push((task, action)))
         else {
             return false;
         };
@@ -235,12 +245,11 @@ impl<R: Route> TimedAgent<R> {
         {
             let gate = self.agent.inner.valuation();
             let mut view = gate.view.borrow_mut();
-            for (task, action) in actions.into_iter().enumerate() {
+            for &(task, action) in &self.actions {
+                let start = &mut view.starts[task.index()];
                 match action {
-                    Action::Update => {
-                        view.starts[task] = message.starts.get(task).copied().flatten();
-                    }
-                    Action::Reset => view.starts[task] = None,
+                    Action::Update => *start = message.starts.get(task.index()).copied().flatten(),
+                    Action::Reset => *start = None,
                     Action::Leave => {}
                 }
             }

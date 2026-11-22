@@ -2,8 +2,7 @@
 //!
 //! This is its own test binary because it replaces the global allocator with a counting one,
 //! and it holds a single test so no other test allocates while a region is measured. The
-//! budgets sit about 10% above today's counts; issue #17 tracks bringing them down, and each
-//! improvement should lower them.
+//! budgets sit about 10% above today's counts; each improvement should lower them.
 
 use std::alloc::System;
 
@@ -22,10 +21,10 @@ use colony::{JOBS, Plan, WARM_UP_ROUNDS, WORKERS, colony, negotiation};
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
 /// The most allocations a round mid negotiation may make.
-const BUSY_BUDGET: usize = 31_000;
+const BUSY_BUDGET: usize = 460;
 
 /// The most allocations a round of a settled team may make.
-const SETTLED_BUDGET: usize = 5_100;
+const SETTLED_BUDGET: usize = 390;
 
 /// The allocations and bytes of one round of `simulation`.
 fn allocations_of_one_round(simulation: &mut Simulation<Agent<Plan>>) -> (usize, usize) {
@@ -36,7 +35,11 @@ fn allocations_of_one_round(simulation: &mut Simulation<Agent<Plan>>) -> (usize,
     (stats.allocations, stats.bytes_allocated)
 }
 
-/// One round stays within its allocation budget, mid negotiation and once settled.
+/// One round stays within its allocation budget, mid negotiation and once settled, and an
+/// agent's own bundle phase and consensus phase allocate nothing; only building the message
+/// it broadcasts does.
+///
+/// A single test, so no other test allocates while a region is measured.
 #[test]
 fn rounds_stay_within_their_allocation_budget() {
     let mut simulation = negotiation(&colony());

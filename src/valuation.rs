@@ -120,6 +120,29 @@ pub trait PathScore<Task> {
     ///
     /// The empty path must be feasible.
     fn path_score(&self, path: &[Task]) -> Option<u64>;
+
+    /// Calls `each` with every insertion position of `task` into `path`, from `path.len()`
+    /// down to zero, and the [`path_score`](PathScore::path_score) of `path` with `task` at
+    /// that position.
+    ///
+    /// The default builds one scratch path and moves `task` through it. Override it when
+    /// the score can be computed without materializing the path, as
+    /// [`Timed`](crate::route::Timed) does, to avoid the allocation.
+    fn insertion_scores(&self, path: &[Task], task: &Task, each: &mut dyn FnMut(usize, Option<u64>))
+    where
+        Task: Clone,
+    {
+        let mut candidate: Vec<Task> = path.to_vec();
+        candidate.push(task.clone());
+
+        for position in (0..=path.len()).rev() {
+            if position < path.len() {
+                candidate.swap(position, position + 1);
+            }
+
+            each(position, self.path_score(&candidate));
+        }
+    }
 }
 
 /// A [`Valuation`] that tries every insertion position of a [`PathScore`] and keeps the best.
@@ -128,7 +151,9 @@ pub trait PathScore<Task> {
 /// task. A task that lowers the path's value scores zero, which never wins a bid. Of equally
 /// good positions the earliest wins.
 ///
-/// Each call scores `path.len() + 1` candidate paths and allocates one scratch path.
+/// Each call scores `path.len() + 1` candidate paths through
+/// [`PathScore::insertion_scores`], which allocates one scratch path unless the path score
+/// overrides it.
 ///
 /// # Examples
 ///
@@ -171,40 +196,17 @@ impl<Task: Clone, S: PathScore<Task>> Valuation<Task> for BestInsertion<S> {
 
     fn best_insertion(&self, path: &[Task], task: &Task) -> Option<Insertion> {
         let base = self.0.path_score(path)?;
-        let mut candidate: Vec<Task> = path.to_vec();
-        candidate.push(task.clone());
 
         let mut best: Option<Insertion> = None;
-        for position in (0..=path.len()).rev() {
-            if position < path.len() {
-                candidate.swap(position, position + 1);
-            }
-
-            best = better_insertion(best, self.score_candidate(&candidate, base, position));
-        }
+        self.0.insertion_scores(path, task, &mut |position, score| {
+            let candidate = score.map(|value| Insertion {
+                position,
+                gain: value.saturating_sub(base),
+            });
+            best = better_insertion(best, candidate);
+        });
 
         best
-    }
-}
-
-impl<S> BestInsertion<S> {
-    /// Scores `candidate`, the path with the new task at `position`, against the old path's
-    /// value `base`; `None` when the candidate is infeasible.
-    fn score_candidate<Task>(
-        &self,
-        candidate: &[Task],
-        base: u64,
-        position: usize,
-    ) -> Option<Insertion>
-    where
-        S: PathScore<Task>,
-    {
-        let value = self.0.path_score(candidate)?;
-
-        Some(Insertion {
-            position,
-            gain: value.saturating_sub(base),
-        })
     }
 }
 
