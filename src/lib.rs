@@ -20,3 +20,8 @@ pub trait Valuation<Task> {
     /// `None` means the agent cannot take the task.
     fn marginal_score(&self, bundle: &[Task], task: &Task) -> Option<u64>;
 }
+
+/// Doctests for the code examples in README.md (not part of the API).
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+mod readme_doctests {}
