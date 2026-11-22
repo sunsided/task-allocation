@@ -1,10 +1,14 @@
 //! The CBBA conflict-resolution table: what a receiver does with one task's entry in a
 //! message.
 //!
-//! This is Table 1 of Choi, Brunet and How, "Consensus-Based Decentralized Auctions for
-//! Robust Task Allocation" (IEEE Transactions on Robotics, 2009). For each task, the receiver
-//! `i` compares the sender `k`'s belief about the winner with its own, and either takes the
-//! sender's entry (*update*), forgets the task's winner (*reset*), or keeps its own (*leave*).
+//! This is the conflict-resolution table of CBBA, from Choi, Brunet and How,
+//! "Consensus-Based Decentralized Auctions for Robust Task Allocation" (IEEE Transactions on
+//! Robotics, 2009), as implemented in the open-source CBBA-Python
+//! (<https://github.com/zehuilu/CBBA-Python>), against which every entry was checked.
+//!
+//! For each task, the receiver `i` compares the sender `k`'s belief about the winner with its
+//! own, and either takes the sender's entry (*update*), forgets the task's winner (*reset*),
+//! or keeps its own (*leave*).
 //! When a third agent's bid is involved, freshness decides: the sender's information about
 //! agent `m` is fresher when it has seen a later clock value of `m` than the receiver has.
 //!
