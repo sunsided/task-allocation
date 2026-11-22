@@ -146,3 +146,14 @@ fn fresh_team_is_not_settled() {
     assert!(!simulation.is_settled());
     assert!(simulation.agents().iter().all(Agent::can_bid));
 }
+
+/// A simulation can be cloned, to branch a run: the copy continues independently.
+#[test]
+fn simulations_clone() {
+    let mut original = Simulation::new(team(3, 6, 2), Network::default());
+    original.step();
+    let mut copy = original.clone();
+
+    copy.step();
+    assert_eq!(original.tick() + 1, copy.tick());
+}
