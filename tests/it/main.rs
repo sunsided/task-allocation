@@ -3,6 +3,7 @@
 mod auction;
 mod bundle;
 mod cbba;
+mod ccbba;
 mod centralized;
 mod support;
 mod valuation;

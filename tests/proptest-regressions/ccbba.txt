@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc ec4e1639a1e44714cc9937371f50a3a655d77987f7861723ce6482c5acb9d983 # shrinks to (instance, constraints, network) = (Instance { agents: [Coverage(Coverage { covers: [131, 235, 74], weights: [12, 5, 13, 13, 12, 14, 7, 13], allowed: 877228751 })], tasks: 3, capacity: 2 }, Constraints { membership: [Some((0, 0)), Some((0, 1)), Some((0, 2))], activities: [Activity { tasks: [TaskId(0), TaskId(1), TaskId(2)], dependency: [[0, 0, 0], [0, 0, 1], [0, 1, 0]] }] }, Network { seed: 0, max_delay: 0, loss_per_mille: 0, topology: Complete, partitions: [Partition { from: 35, until: 39, groups: [0] }] })
+cc 0796cb75f622a5ca856ee881e2d7cd13b93f679a78908ae3b68954a4f1995285 # shrinks to (instance, constraints, network) = (Instance { agents: [Coverage(Coverage { covers: [165, 11, 6], weights: [4, 15, 6, 10, 11, 9, 5, 7], allowed: 19459671 }), Courier(BestInsertion(Courier { start: 36, sites: [Site { position: 96, duration: 16, deadline: 198 }, Site { position: 40, duration: 7, deadline: 76 }, Site { position: 37, duration: 12, deadline: 45 }], rewards: [27, 8, 13] }))], tasks: 3, capacity: 3 }, Constraints { membership: [Some((0, 0)), Some((0, 1)), Some((0, 2))], activities: [Activity { tasks: [TaskId(0), TaskId(1), TaskId(2)], dependency: [[0, 1, 1], [0, 0, -1], [1, -1, 0]] }] }, Network { seed: 0, max_delay: 0, loss_per_mille: 0, topology: Complete, partitions: [] })

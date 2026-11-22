@@ -12,10 +12,10 @@ use crate::bundle::gains_replay;
 use crate::support::{self, Instance, instance_sized, instance_with, is_greedy_outcome};
 
 /// The most agents in a generated team; enough for messages relayed through third parties.
-const MAX_TEAM: usize = 6;
+pub const MAX_TEAM: usize = 6;
 
 /// Ticks after the last partition heals within which every run must settle.
-const SETTLE_TICKS: u64 = 2_000;
+pub const SETTLE_TICKS: u64 = 2_000;
 
 /// A partition of `agents` agents into up to three groups, active for ticks
 /// `from..from + length`.
@@ -29,7 +29,7 @@ fn partition(agents: usize) -> impl Strategy<Value = Partition> {
 
 /// A connected topology over `agents` agents: complete, or a random spanning tree with a
 /// few extra links, so that some agents hear of each other only through relays.
-fn topology(agents: usize) -> impl Strategy<Value = Topology> {
+pub fn topology(agents: usize) -> impl Strategy<Value = Topology> {
     let parents = (1..agents.max(2)).map(|agent| 0..agent).collect::<Vec<_>>();
     let tree = parents.prop_map(|parents| {
         parents
@@ -49,7 +49,7 @@ fn topology(agents: usize) -> impl Strategy<Value = Topology> {
 
 /// A network with up to 5 ticks of extra delay, up to 50% loss, a connected topology, and
 /// up to three partitions.
-fn network(agents: usize) -> impl Strategy<Value = Network> {
+pub fn network(agents: usize) -> impl Strategy<Value = Network> {
     (
         any::<u64>(),
         0_u64..=5,

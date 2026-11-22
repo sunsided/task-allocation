@@ -17,6 +17,7 @@
 //! - [`cbba`]: the consensus-based bundle algorithm. Each [`cbba::Agent`] builds its bundle,
 //!   broadcasts its view of every task's winner, and merges what it hears, until the team
 //!   agrees on a conflict-free assignment.
+//! - [`ccbba`]: CBBA for coupled tasks that need or exclude each other.
 //! - [`sim`]: a deterministic simulated network with delays, losses and partitions, to run
 //!   teams on.
 //! - [`auction`]: auction baselines with a central auctioneer: sequential single-item
@@ -69,6 +70,7 @@ mod assignment;
 pub mod auction;
 mod bundle;
 pub mod cbba;
+pub mod ccbba;
 pub mod centralized;
 mod id;
 pub mod route;
