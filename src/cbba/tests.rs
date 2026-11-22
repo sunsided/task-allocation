@@ -157,3 +157,31 @@ fn crossed_beliefs_reset_the_task() {
     assert_eq!(receiver.winner(TaskId(0)), None);
     assert_eq!(receiver.winning_bid(TaskId(0)), 0);
 }
+
+/// Replanning releases the last tasks, or all of them, and rebuilds against the current
+/// winners.
+#[test]
+fn replanning_rebuilds_released_tasks() {
+    let mut keep = agent(0, 1, 3, &[9, 8, 7]);
+    let mut last = agent(0, 1, 3, &[9, 8, 7]).with_replan(super::Replan::Last(1));
+    let mut full = agent(0, 1, 3, &[9, 8, 7]).with_replan(super::Replan::Full);
+
+    assert_eq!(
+        (
+            keep.build_bundle(),
+            last.build_bundle(),
+            full.build_bundle()
+        ),
+        (3, 3, 3)
+    );
+    assert_eq!(
+        (
+            keep.build_bundle(),
+            last.build_bundle(),
+            full.build_bundle()
+        ),
+        (0, 1, 3)
+    );
+    assert_eq!(bundle_of(&full), [0, 1, 2]);
+    assert!(!keep.can_bid() && !last.can_bid() && !full.can_bid());
+}
