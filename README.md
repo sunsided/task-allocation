@@ -27,13 +27,9 @@ Decentralized multi-agent task allocation in Rust: agents decide among themselve
   central planner, over links that drop and delay messages. CBBA settles on a conflict-free
   assignment from whatever each agent hears, and the seeded network simulator tests that
   before deployment.
-- Game developers assigning workers, units or squads to jobs where a job's value depends on
-  what the agent already holds: travel order, deadlines, roles that only pay off together.
-  Colony and management sims, RTS harvesting and targeting, squad roles, delivery and
-  logistics games. Bundles built from marginal gains and the auction baselines fit there;
-  scores are integers and the simulation is seeded, so runs are deterministic, which suits
-  lockstep multiplayer and replays. Decentralized CBBA matters when the AI runs across
-  servers or clients, or when NPCs should act only on what they have heard.
+- Games and simulations that hand out jobs to workers, units or NPCs, where a job's value
+  depends on what the agent already holds. Integer scores and the seeded simulator keep
+  runs deterministic.
 - Researchers comparing allocation algorithms: CBBA, auctions and sequential greedy run on
   the same valuations, next to an exhaustive optimum for small instances.
 - For plain one-to-one assignment with all state in one process, the Hungarian algorithm
@@ -183,6 +179,10 @@ this one:
   travel around an obstacle from RRT* in
   [sampling-planning](https://github.com/sunsided/sampling-planning), comparing CBBA with the
   auctions, sequential greedy and the optimum.
+
+- [`colony_sim`](https://github.com/sunsided/task-allocation/blob/main/examples/colony_sim.rs):
+  50 workers and 200 jobs with deadlines, comparing sequential greedy, a sequential auction
+  and CBBA, then allocating again when a job appears or a worker leaves.
 
 Run one with `cargo run --release --example warehouse_grid`.
 
