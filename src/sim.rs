@@ -238,6 +238,27 @@ impl<V: Valuation<TaskId>> Simulation<V> {
         None
     }
 
+    /// Whether the team agrees on every winner, every bundle matches, no agent's bundle
+    /// phase would add a task, and every message in flight carries the agreed winners;
+    /// nothing changes after that. A team that has not bid yet is not settled.
+    #[must_use]
+    pub fn is_settled(&self) -> bool {
+        let Some(first) = self.agents.first() else {
+            return true;
+        };
+
+        self.agents.iter().all(Agent::is_consistent)
+            && !self.agents.iter().any(Agent::can_bid)
+            && self
+                .agents
+                .iter()
+                .all(|agent| agent.claims() == first.claims())
+            && self
+                .in_flight
+                .iter()
+                .all(|copy| copy.message.claims() == first.claims())
+    }
+
     /// Delivers every copy due by the current tick, in arrival order.
     fn deliver_due(&mut self) {
         let tick = self.tick;
@@ -330,25 +351,6 @@ impl<V> Simulation<V> {
                 .map(|agent| agent.bundle().clone())
                 .collect(),
         )
-    }
-
-    /// Whether the team agrees on every winner, every bundle matches, and every message in
-    /// flight carries the agreed winners; nothing changes after that.
-    #[must_use]
-    pub fn is_settled(&self) -> bool {
-        let Some(first) = self.agents.first() else {
-            return true;
-        };
-
-        self.agents.iter().all(Agent::is_consistent)
-            && self
-                .agents
-                .iter()
-                .all(|agent| agent.claims() == first.claims())
-            && self
-                .in_flight
-                .iter()
-                .all(|copy| copy.message.claims() == first.claims())
     }
 }
 

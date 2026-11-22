@@ -137,3 +137,12 @@ fn line_topology_relays() {
     assert!(Topology::Links(vec![(AgentId(0), AgentId(1))]).connects(AgentId(1), AgentId(0)));
     assert!(!Topology::Links(vec![]).connects(AgentId(1), AgentId(0)));
 }
+
+/// A team that has not bid yet is not settled, even though it trivially agrees.
+#[test]
+fn fresh_team_is_not_settled() {
+    let simulation = Simulation::new(team(3, 6, 2), Network::default());
+
+    assert!(!simulation.is_settled());
+    assert!(simulation.agents().iter().all(Agent::can_bid));
+}

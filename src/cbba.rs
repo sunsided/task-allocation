@@ -156,12 +156,7 @@ impl<V: Valuation<TaskId>> Agent<V> {
         let before = self.bundle.len();
         self.bundle
             .extend_greedily(&self.valuation, &self.tasks, self.capacity, |task, gain| {
-                gain > 0
-                    && Claim {
-                        winner: Some(id),
-                        bid: gain,
-                    }
-                    .outbids(claims[task.index()])
+                Self::wins(id, claims, *task, gain)
             });
 
         for (task, gain) in self.bundle.entries().skip(before) {
@@ -172,6 +167,32 @@ impl<V: Valuation<TaskId>> Agent<V> {
         }
 
         self.bundle.len() - before
+    }
+
+    /// Whether the bundle phase would add a task now: this agent has room left and can
+    /// outbid the best known bid on some task.
+    #[must_use]
+    pub fn can_bid(&self) -> bool {
+        let id = self.id;
+        let claims = &self.claims;
+
+        self.bundle.len() < self.capacity
+            && self
+                .bundle
+                .best_candidate(&self.valuation, &self.tasks, |task, gain| {
+                    Self::wins(id, claims, *task, gain)
+                })
+                .is_some()
+    }
+
+    /// Whether agent `id`, bidding `gain` on `task`, beats the best bid in `claims`.
+    fn wins(id: AgentId, claims: &[Claim], task: TaskId, gain: u64) -> bool {
+        gain > 0
+            && Claim {
+                winner: Some(id),
+                bid: gain,
+            }
+            .outbids(claims[task.index()])
     }
 
     /// The message this agent broadcasts now: its winner tables and what it has seen of
