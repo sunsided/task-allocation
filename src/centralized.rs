@@ -6,9 +6,9 @@
 //!
 //! - [`sequential_greedy`] repeatedly gives the single most valuable remaining task to the
 //!   agent that values it most. When the valuations are submodular set functions (the order
-//!   of tasks does not matter and gains diminish), it scores at least half the optimum if
-//!   agents have no capacity limit (Lehmann, Lehmann and Nisan, 2001), and at least a third
-//!   with one (Fisher, Nemhauser and Wolsey, 1978: greedy over two matroids).
+//!   of tasks does not matter and gains diminish), the property tests check that it scores
+//!   at least half the optimum without capacity limits, and at least a third with them, the
+//!   bounds known for greedy over one and two matroids.
 //! - [`optimal`] finds the best assignment by exhaustive search, for small instances.
 //!
 //! Both maximize the same objective, [`Assignment::value`]: the sum, over agents, of the
