@@ -13,6 +13,7 @@
 //! Repository: <https://github.com/sunsided/task-allocation>
 
 #![no_std]
+#![forbid(unsafe_code)]
 
 /// An agent's valuation of tasks, used to place bids.
 pub trait Valuation<Task> {
