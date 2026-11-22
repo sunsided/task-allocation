@@ -6,7 +6,7 @@ use task_allocation::{Bundle, TaskId, Valuation};
 use crate::support::{Agent, instance};
 
 /// The path of the first `count` tasks of `bundle`: the path with every later task removed.
-fn prefix_path(bundle: &Bundle<TaskId>, count: usize) -> Vec<TaskId> {
+pub fn prefix_path(bundle: &Bundle<TaskId>, count: usize) -> Vec<TaskId> {
     let prefix: Vec<TaskId> = bundle.tasks().take(count).copied().collect();
 
     bundle
@@ -19,7 +19,7 @@ fn prefix_path(bundle: &Bundle<TaskId>, count: usize) -> Vec<TaskId> {
 
 /// Checks that every recorded gain is what the agent reports for that task on the path of
 /// the tasks added before it.
-fn gains_replay(agent: &Agent, bundle: &Bundle<TaskId>) -> Result<(), TestCaseError> {
+pub fn gains_replay(agent: &Agent, bundle: &Bundle<TaskId>) -> Result<(), TestCaseError> {
     for (index, (task, gain)) in bundle.entries().enumerate() {
         let path = prefix_path(bundle, index);
         let insertion = agent.best_insertion(&path, task);

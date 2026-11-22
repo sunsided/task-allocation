@@ -15,6 +15,7 @@ Decentralized multi-agent task allocation in Rust: agents decide among themselve
 - Consensus-based bundle algorithm (CBBA) and its variants, converging to conflict-free assignments under delayed and intermittent communication
 - Sequential and combinatorial auctions as baselines
 - Task scores from user-supplied costs, such as travel time, deadlines or resource use
+- A deterministic simulated network (seeded delays, losses and partitions) to test teams on
 - Greedy bundle construction from marginal gains, with a check for diminishing gains
 - Centralized references: the sequential greedy assignment, and the exhaustive optimum for small instances
 
@@ -92,6 +93,47 @@ assert!(assignment.is_conflict_free());
 assert_eq!(assignment.holder(TaskId(1)), Some(AgentId(0)));
 assert_eq!(assignment.holder(TaskId(2)), Some(AgentId(1)));
 ```
+
+Decentralized, each rover runs a CBBA agent and exchanges messages with whoever it can
+reach. The simulated network here loses a third of all messages and delays the rest by up to
+four ticks; the rovers still agree on who does what:
+
+```rust
+use task_allocation::cbba::Agent;
+use task_allocation::sim::{Network, Simulation};
+use task_allocation::{AgentId, TaskId, Valuation};
+
+/// The same rovers as above.
+const SITES: [u64; 3] = [10, 40, 90];
+
+struct Rover {
+    start: u64,
+}
+
+impl Valuation<TaskId> for Rover {
+    fn marginal_score(&self, path: &[TaskId], task: &TaskId) -> Option<u64> {
+        let from = path.last().map_or(self.start, |last| SITES[last.index()]);
+
+        100_u64.checked_sub(from.abs_diff(SITES[task.index()]))
+    }
+}
+
+let agents = vec![
+    Agent::new(AgentId(0), 2, SITES.len(), 2, Rover { start: 0 }),
+    Agent::new(AgentId(1), 2, SITES.len(), 2, Rover { start: 100 }),
+];
+let network = Network { seed: 1, max_delay: 4, loss_per_mille: 333, ..Network::default() };
+let mut simulation = Simulation::new(agents, network);
+
+simulation.run_until_settled(1_000).expect("the rovers agree");
+
+let assignment = simulation.assignment();
+assert!(assignment.is_conflict_free());
+assert_eq!(assignment.holder(TaskId(2)), Some(AgentId(1)));
+```
+
+On real hardware, call `build_bundle` and `message` on every round and pass each message
+that arrives to `receive`.
 
 The crate is `no_std`, needs `alloc`, and has no runtime dependencies.
 
