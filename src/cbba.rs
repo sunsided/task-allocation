@@ -141,8 +141,8 @@ pub struct Agent<V> {
 /// tied gains (Buckman, Choi and How, "Partial Replanning for Decentralized Dynamic Task
 /// Allocation", AIAA `SciTech` 2019, <https://arxiv.org/abs/1806.04836>).
 ///
-/// Releasing only the tasks added last trades that coordination for fewer changes per round,
-/// for example when tasks arrive over time.
+/// Releasing only the tasks added last trades that coordination for fewer bundle changes
+/// per round, and fewer valuation calls.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Replan {
     /// Keep the bundle and only add to it: CBBA as published in 2009.
@@ -208,8 +208,24 @@ impl<V: Valuation<TaskId>> Agent<V> {
 
     /// Whether the bundle phase would change anything now: this agent would add a task, or,
     /// when it replans, rebuild its bundle differently.
+    ///
+    /// With [`Replan::Keep`] this looks for one winnable task. Otherwise it runs a whole
+    /// bundle phase on a copy, as costly as [`build_bundle`](Agent::build_bundle).
     #[must_use]
     pub fn can_bid(&self) -> bool {
+        if self.replan == Replan::Keep {
+            let id = self.id;
+            let claims = &self.claims;
+
+            return self.bundle.len() < self.capacity
+                && self
+                    .bundle
+                    .best_candidate(&self.valuation, &self.tasks, |task, gain| {
+                        Self::wins(id, claims, *task, gain)
+                    })
+                    .is_some();
+        }
+
         let (bundle, claims, _) = self.rebuilt();
 
         bundle != self.bundle || claims != self.claims
