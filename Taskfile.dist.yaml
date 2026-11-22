@@ -166,6 +166,12 @@ tasks:
     cmds:
       - cargo semver-checks --workspace
 
+  bench:
+    desc: "Run benchmarks (criterion flags after --: task bench -- --quick)"
+    cmds:
+      # --bench '*': only [[bench]] targets (--benches would include lib harnesses that reject criterion flags).
+      - cargo bench --workspace --bench '*' -- {{.CLI_ARGS}}
+
   coverage:
     desc: Coverage report (lcov.info, gitignored; HTML with -- --html)
     preconditions:

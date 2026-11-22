@@ -35,6 +35,7 @@ needs before it can be merged.
 | `task doc` | Build the docs, private items included, with warnings as errors |
 | `task ci` | Everything CI runs except the coverage upload and the semver check (`task coverage`, `task semver`). Run it before you open a PR |
 | `task build:no-std` | Build the library for `thumbv7em-none-eabihf` |
+| `task bench` | Run the Criterion benchmarks (`task bench -- --quick` for a fast pass); `cargo test --test alloc -- --nocapture` prints the allocations of one CBBA round |
 | `task clean` | Remove build output |
 
 ## Code style
