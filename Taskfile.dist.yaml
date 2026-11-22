@@ -38,7 +38,7 @@ tasks:
       - sh: rustup target list --installed | grep -qx '{{.NO_STD_TARGET}}'
         msg: "target missing - rustup target add {{.NO_STD_TARGET}}"
     cmds:
-      # The crate is no_std without alloc; a bare-metal build catches any std or alloc use.
+      # The crate is no_std with alloc; a bare-metal build catches any std use.
       - cargo build --lib --target {{.NO_STD_TARGET}} --all-features
 
   test:

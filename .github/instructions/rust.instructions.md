@@ -20,11 +20,13 @@ applyTo: "**/*.rs"
   `#[expect(lint, reason = "...")]`. Never `#[allow]`, and never crate-level suppression.
 - No `unsafe` unless the crate opts out of `#![forbid(unsafe_code)]` with a documented
   reason. Each unsafe block has one operation and a `// SAFETY:` comment.
-- The crate is `#![no_std]` without `alloc` and has no runtime dependencies (the CI `no-std`
-  job). Flag any new `[dependencies]` entry, any `std` or `alloc` use, and any feature-gated
-  item without its `#[cfg]` on the re-export in `lib.rs`.
-- `Valuation::marginal_score` scores adding a task to an agent's current bundle: higher is
+- The crate is `#![no_std]` with `alloc` and has no runtime dependencies (the CI `no-std`
+  job). Flag any new `[dependencies]` entry, any `std` use, and any feature-gated item
+  without its `#[cfg]` on the re-export in `lib.rs`.
+- `Valuation::marginal_score` scores adding a task to an agent's current path: higher is
   better, and `None` means the agent cannot take the task, so it places no bid.
+  `Valuation::best_insertion` must agree with it. Scores are `u64` and ties go to the smaller
+  `AgentId`, then the smaller `TaskId`, in every algorithm.
 - Public API changes go with a matching update to the README scope list and usage example
   and the crate docs in `lib.rs`. Name every public API change in the PR.
 - Mermaid diagrams in doc comments must match the code they describe. Update them when the

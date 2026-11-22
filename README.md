@@ -15,6 +15,8 @@ Decentralized multi-agent task allocation in Rust: agents decide among themselve
 - Consensus-based bundle algorithm (CBBA) and its variants, converging to conflict-free assignments under delayed and intermittent communication
 - Sequential and combinatorial auctions as baselines
 - Task scores from user-supplied costs, such as travel time, deadlines or resource use
+- Greedy bundle construction from marginal gains, with a check for diminishing gains
+- Centralized references: the sequential greedy assignment, and the exhaustive optimum for small instances
 
 Typical users are robot and rover teams, drone swarms and multi-agent simulations. Timing constraints between agents fit [temporal-control](https://github.com/sunsided/temporal-control), shared resource budgets [resource-timeline](https://github.com/sunsided/resource-timeline), and travel costs can come from [heuristic-search](https://github.com/sunsided/heuristic-search) or [sampling-planning](https://github.com/sunsided/sampling-planning).
 
@@ -60,7 +62,38 @@ assert_eq!(Rover.marginal_score(&[], &sample), Some(8));
 assert_eq!(Rover.marginal_score(&[survey], &sample), None);
 ```
 
-The crate is `no_std` and has no dependencies.
+Allocation algorithms work on task identifiers. Each agent's valuation looks up what it
+needs, and an algorithm returns one bundle per agent. Here, two rovers on a line split three
+sites, each going for what is closest to its last stop:
+
+```rust
+use task_allocation::{AgentId, TaskId, Valuation, centralized::sequential_greedy};
+
+/// Site positions along the line, in meters.
+const SITES: [u64; 3] = [10, 40, 90];
+
+/// A rover that earns 100 per site, minus the distance from its last stop.
+struct Rover {
+    start: u64,
+}
+
+impl Valuation<TaskId> for Rover {
+    fn marginal_score(&self, path: &[TaskId], task: &TaskId) -> Option<u64> {
+        let from = path.last().map_or(self.start, |last| SITES[last.index()]);
+
+        100_u64.checked_sub(from.abs_diff(SITES[task.index()]))
+    }
+}
+
+let rovers = [Rover { start: 0 }, Rover { start: 100 }];
+let assignment = sequential_greedy(&rovers, SITES.len(), 2);
+
+assert!(assignment.is_conflict_free());
+assert_eq!(assignment.holder(TaskId(1)), Some(AgentId(0)));
+assert_eq!(assignment.holder(TaskId(2)), Some(AgentId(1)));
+```
+
+The crate is `no_std`, needs `alloc`, and has no runtime dependencies.
 
 ## Minimum supported Rust version
 
