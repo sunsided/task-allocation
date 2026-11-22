@@ -1,25 +1,28 @@
-//! A deterministic simulated network for running CBBA teams: seeded delays, losses and
-//! partitions.
+//! A deterministic simulated network for running teams of agents: seeded delays, losses,
+//! topologies and partitions.
 //!
-//! Each [`Simulation::step`] is one tick:
+//! A [`Simulation`] runs any [`Participant`], such as a [`cbba::Agent`]. Each
+//! [`Simulation::step`] is one tick:
 //!
 //! ```mermaid
 //! flowchart LR
-//!     deliver[deliver due messages] --> bundle[bundle phase, every agent]
-//!     bundle --> broadcast[broadcast to reachable agents]
+//!     deliver[deliver due messages] --> round[every agent's round]
+//!     round --> broadcast[broadcast every outbox]
 //!     broadcast --> deliver
 //! ```
 //!
-//! A broadcast reaches every agent the sender has a link to in the [`Topology`] and is not
-//! cut off from by an active [`Partition`]; others hear of it only when it is relayed. Each copy is
-//! lost with probability [`Network::loss_per_mille`] / 1000, and otherwise arrives after
-//! 1 to `1 + max_delay` ticks, so messages overtake each other. Agents process the messages
-//! that arrive in a tick in arrival order. Everything random comes from [`Network::seed`]: the
-//! same seed gives the same run.
+//! Agents may also answer a delivered message right away; those answers go out with the
+//! tick's broadcasts. A broadcast reaches every agent the sender has a link to in the
+//! [`Topology`] and is not cut off from by an active [`Partition`]; others hear of it only
+//! when it is relayed. Each copy is lost with probability [`Network::loss_per_mille`] /
+//! 1000, and otherwise arrives after 1 to `1 + max_delay` ticks, so messages overtake each
+//! other. Agents process the messages that arrive in a tick in arrival order. Everything
+//! random comes from [`Network::seed`]: the same seed gives the same run.
 //!
-//! A team is *settled* when every agent believes in the same winners, every agent's bundle
-//! holds exactly the tasks it wins, and every message still in flight carries those same
-//! winners. Nothing can change after that.
+//! When a team is *settled* is up to the protocol ([`Participant::is_settled`]). For CBBA,
+//! every agent believes in the same winners, every agent's bundle holds exactly the tasks it
+//! wins, no bundle phase would change anything, and every message still in flight carries
+//! those same winners. Nothing can change after that.
 
 mod rng;
 
@@ -27,7 +30,8 @@ use alloc::rc::Rc;
 use alloc::vec::Vec;
 
 use crate::assignment::Assignment;
-use crate::cbba::{Agent, Message};
+use crate::bundle::Bundle;
+use crate::cbba;
 use crate::id::{AgentId, TaskId};
 use crate::valuation::Valuation;
 use rng::SplitMix64;
@@ -120,9 +124,78 @@ pub struct Stats {
     pub blocked: u64,
 }
 
+/// An agent that a [`Simulation`] can run: it works in rounds, broadcasts messages, and
+/// handles the messages that reach it.
+///
+/// [`cbba::Agent`] implements it; so can other consensus protocols.
+pub trait Participant: Sized {
+    /// What the agent broadcasts.
+    type Message;
+
+    /// The agent's identifier.
+    fn id(&self) -> AgentId;
+
+    /// The tasks the agent holds now.
+    fn bundle(&self) -> &Bundle<TaskId>;
+
+    /// One round of the agent's own work at tick `now`, such as its bundle phase; pushes
+    /// what it broadcasts onto `outbox`.
+    fn act(&mut self, now: u64, outbox: &mut Vec<Self::Message>);
+
+    /// Handles `message`, arriving at tick `now`; pushes what the agent broadcasts in
+    /// response onto `outbox`.
+    fn receive(&mut self, now: u64, message: &Self::Message, outbox: &mut Vec<Self::Message>);
+
+    /// Whether `team` has settled, with `in_flight` still on its way: the agents agree on a
+    /// conflict-free assignment that nothing in flight and no further round can change.
+    fn is_settled(team: &[Self], in_flight: &[&Self::Message]) -> bool;
+}
+
+impl<V: Valuation<TaskId>> Participant for cbba::Agent<V> {
+    type Message = cbba::Message;
+
+    fn id(&self) -> AgentId {
+        self.id()
+    }
+
+    fn bundle(&self) -> &Bundle<TaskId> {
+        self.bundle()
+    }
+
+    /// Runs the bundle phase and broadcasts the agent's full state, every round.
+    fn act(&mut self, _now: u64, outbox: &mut Vec<cbba::Message>) {
+        self.build_bundle();
+        outbox.push(self.message());
+    }
+
+    /// Runs the consensus phase for `message`; CBBA answers in the next round, not now.
+    fn receive(&mut self, _now: u64, message: &cbba::Message, _outbox: &mut Vec<cbba::Message>) {
+        cbba::Agent::receive(self, message);
+    }
+
+    /// The team agrees on every winner, every bundle matches, no agent's bundle phase would
+    /// change anything, and every message in flight carries the agreed winners. A team
+    /// that has not bid yet is not settled.
+    fn is_settled(team: &[Self], in_flight: &[&cbba::Message]) -> bool {
+        let Some(first) = team.first() else {
+            return true;
+        };
+
+        team.iter().all(cbba::Agent::is_consistent)
+            && !team.iter().any(cbba::Agent::can_bid)
+            && team.iter().all(|agent| agent.claims() == first.claims())
+            && in_flight
+                .iter()
+                .all(|message| message.claims() == first.claims())
+    }
+}
+
+/// Message copies on their way.
+type Copies<M> = Vec<InFlight<M>>;
+
 /// A message copy on its way to one agent.
 #[derive(Clone, Debug)]
-struct InFlight {
+struct InFlight<M> {
     /// The tick at which the copy arrives.
     arrives: u64,
 
@@ -133,10 +206,10 @@ struct InFlight {
     to: AgentId,
 
     /// The message, shared by all copies of one broadcast.
-    message: Rc<Message>,
+    message: Rc<M>,
 }
 
-/// A team of CBBA agents on a simulated network.
+/// A team of agents on a simulated network.
 ///
 /// # Examples
 ///
@@ -161,9 +234,9 @@ struct InFlight {
 /// assert!(ticks <= 500);
 /// ```
 #[derive(Clone, Debug)]
-pub struct Simulation<V> {
+pub struct Simulation<A: Participant> {
     /// The team, indexed by agent.
-    agents: Vec<Agent<V>>,
+    agents: Vec<A>,
 
     /// The network's behavior.
     network: Network,
@@ -175,7 +248,7 @@ pub struct Simulation<V> {
     tick: u64,
 
     /// Copies still on their way.
-    in_flight: Vec<InFlight>,
+    in_flight: Copies<A::Message>,
 
     /// The sending order of the next copy.
     next_order: u64,
@@ -184,14 +257,14 @@ pub struct Simulation<V> {
     stats: Stats,
 }
 
-impl<V: Valuation<TaskId>> Simulation<V> {
+impl<A: Participant> Simulation<A> {
     /// A simulation of `agents` on `network`, at tick zero with nothing in flight.
     ///
     /// # Panics
     ///
     /// Panics when the agents are not identified `0..agents.len()` in order.
     #[must_use]
-    pub fn new(agents: Vec<Agent<V>>, network: Network) -> Self {
+    pub fn new(agents: Vec<A>, network: Network) -> Self {
         let in_order = agents
             .iter()
             .enumerate()
@@ -211,16 +284,17 @@ impl<V: Valuation<TaskId>> Simulation<V> {
         }
     }
 
-    /// Runs one tick: delivers the messages due, runs every agent's bundle phase, and
-    /// broadcasts every agent's state.
+    /// Runs one tick: delivers the messages due, runs every agent's round, and broadcasts
+    /// what the agents put in their outboxes.
     pub fn step(&mut self) {
-        self.deliver_due();
+        let mut outboxes: Vec<Vec<A::Message>> = self.agents.iter().map(|_| Vec::new()).collect();
+        self.deliver_due(&mut outboxes);
 
-        for agent in &mut self.agents {
-            agent.build_bundle();
+        for (agent, outbox) in self.agents.iter_mut().zip(&mut outboxes) {
+            agent.act(self.tick, outbox);
         }
 
-        self.broadcast_all();
+        self.broadcast_all(outboxes);
         self.tick += 1;
     }
 
@@ -238,31 +312,21 @@ impl<V: Valuation<TaskId>> Simulation<V> {
         None
     }
 
-    /// Whether the team agrees on every winner, every bundle matches, no agent's bundle
-    /// phase would add a task, and every message in flight carries the agreed winners;
-    /// nothing changes after that. A team that has not bid yet is not settled.
+    /// Whether the team has settled: see [`Participant::is_settled`]. Nothing changes after
+    /// that.
     #[must_use]
     pub fn is_settled(&self) -> bool {
-        let Some(first) = self.agents.first() else {
-            return true;
-        };
+        let in_flight: Vec<&A::Message> =
+            self.in_flight.iter().map(|copy| &*copy.message).collect();
 
-        self.agents.iter().all(Agent::is_consistent)
-            && !self.agents.iter().any(Agent::can_bid)
-            && self
-                .agents
-                .iter()
-                .all(|agent| agent.claims() == first.claims())
-            && self
-                .in_flight
-                .iter()
-                .all(|copy| copy.message.claims() == first.claims())
+        A::is_settled(&self.agents, &in_flight)
     }
 
-    /// Delivers every copy due by the current tick, in arrival order.
-    fn deliver_due(&mut self) {
+    /// Delivers every copy due by the current tick, in arrival order, collecting what the
+    /// receivers broadcast in response in `outboxes`.
+    fn deliver_due(&mut self, outboxes: &mut [Vec<A::Message>]) {
         let tick = self.tick;
-        let (mut due, waiting): (Vec<InFlight>, Vec<InFlight>) = self
+        let (mut due, waiting): (Copies<A::Message>, Copies<A::Message>) = self
             .in_flight
             .drain(..)
             .partition(|copy| copy.arrives <= tick);
@@ -270,17 +334,19 @@ impl<V: Valuation<TaskId>> Simulation<V> {
         due.sort_unstable_by_key(|copy| (copy.arrives, copy.order));
 
         for copy in due {
-            self.agents[copy.to.index()].receive(&copy.message);
+            let to = copy.to.index();
+            self.agents[to].receive(tick, &copy.message, &mut outboxes[to]);
             self.stats.delivered += 1;
         }
     }
 
-    /// Puts every agent's message on the network.
-    fn broadcast_all(&mut self) {
-        for sender in 0..self.agents.len() {
-            let message = Rc::new(self.agents[sender].message());
-            for receiver in 0..self.agents.len() {
-                if receiver != sender {
+    /// Broadcasts every message in every agent's outbox.
+    fn broadcast_all(&mut self, outboxes: Vec<Vec<A::Message>>) {
+        let agents = self.agents.len();
+        for (sender, outbox) in outboxes.into_iter().enumerate() {
+            for message in outbox {
+                let message = Rc::new(message);
+                for receiver in (0..agents).filter(|&receiver| receiver != sender) {
                     self.send(AgentId(sender), AgentId(receiver), &message);
                 }
             }
@@ -289,7 +355,7 @@ impl<V: Valuation<TaskId>> Simulation<V> {
 
     /// Sends one copy of `message` from `from` to `to`, unless a partition blocks it or the
     /// network loses it.
-    fn send(&mut self, from: AgentId, to: AgentId, message: &Rc<Message>) {
+    fn send(&mut self, from: AgentId, to: AgentId, message: &Rc<A::Message>) {
         if self.is_cut_off(from, to) {
             self.stats.blocked += 1;
             return;
@@ -320,12 +386,10 @@ impl<V: Valuation<TaskId>> Simulation<V> {
                 .iter()
                 .any(|partition| partition.separates(self.tick, a, b))
     }
-}
 
-impl<V> Simulation<V> {
     /// The team, indexed by agent.
     #[must_use]
-    pub fn agents(&self) -> &[Agent<V>] {
+    pub fn agents(&self) -> &[A] {
         &self.agents
     }
 

@@ -108,7 +108,7 @@ fn team(instance: &Instance, replan: Replan) -> Vec<Agent<support::Agent>> {
 
 /// Runs CBBA for `instance` on `network` until it settles; `None` when it does not settle
 /// within [`SETTLE_TICKS`] of the last partition healing.
-fn run(instance: &Instance, network: Network) -> Option<Simulation<support::Agent>> {
+fn run(instance: &Instance, network: Network) -> Option<Simulation<Agent<support::Agent>>> {
     run_with(instance, network, Replan::Keep)
 }
 
@@ -119,7 +119,7 @@ fn run_with(
     instance: &Instance,
     network: Network,
     replan: Replan,
-) -> Option<Simulation<support::Agent>> {
+) -> Option<Simulation<Agent<support::Agent>>> {
     let healed = network
         .partitions
         .iter()
@@ -135,7 +135,7 @@ fn run_with(
 /// Checks that every agent believes the holder of each task wins it, with the bid the
 /// holder recorded.
 fn agrees_with(
-    simulation: &Simulation<support::Agent>,
+    simulation: &Simulation<Agent<support::Agent>>,
     assignment: &Assignment,
 ) -> Result<(), TestCaseError> {
     for agent in simulation.agents() {
@@ -159,7 +159,7 @@ fn agrees_with(
 
 /// Checks that no agent with room left could outbid the winner of a task it does not hold.
 fn nobody_can_outbid(
-    simulation: &Simulation<support::Agent>,
+    simulation: &Simulation<Agent<support::Agent>>,
     instance: &Instance,
 ) -> Result<(), TestCaseError> {
     for agent in simulation.agents() {
@@ -199,7 +199,7 @@ fn nobody_can_outbid(
 /// Checks everything a settled team promises: no conflicts, agreement on winners and bids,
 /// honest bids, and no agent able to outbid a winner.
 fn stable(
-    simulation: &Simulation<support::Agent>,
+    simulation: &Simulation<Agent<support::Agent>>,
     instance: &Instance,
 ) -> Result<(), TestCaseError> {
     let assignment = simulation.assignment();
@@ -216,7 +216,7 @@ fn stable(
 }
 
 /// Checks that `simulation` stays settled, with the same assignment, for 20 more ticks.
-fn stays_settled(simulation: &mut Simulation<support::Agent>) -> Result<(), TestCaseError> {
+fn stays_settled(simulation: &mut Simulation<Agent<support::Agent>>) -> Result<(), TestCaseError> {
     let assignment = simulation.assignment();
     for _ in 0..20 {
         simulation.step();

@@ -178,7 +178,7 @@ struct Plans {
 }
 
 /// Allocates the sites among `rovers` with CBBA over a slightly delayed network.
-fn allocate(rovers: &[Rover]) -> Simulation<BestInsertion<Timed<Rover>>> {
+fn allocate(rovers: &[Rover]) -> Simulation<Agent<BestInsertion<Timed<Rover>>>> {
     // Fixed rewards with deadlines on a line keep the gains diminishing, which CBBA needs
     // to converge.
     let tasks: Vec<TaskId> = (0..SITES.len()).map(TaskId).collect();
@@ -215,7 +215,7 @@ fn allocate(rovers: &[Rover]) -> Simulation<BestInsertion<Timed<Rover>>> {
 }
 
 /// Puts every rover's settled plan into one network, printing each plan.
-fn plans(simulation: &Simulation<BestInsertion<Timed<Rover>>>) -> Plans {
+fn plans(simulation: &Simulation<Agent<BestInsertion<Timed<Rover>>>>) -> Plans {
     let mut stn = Stn::new();
     let origin = stn.add_time_point().expect("fits");
     let mut starts = Vec::new();

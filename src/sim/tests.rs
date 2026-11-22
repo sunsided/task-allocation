@@ -113,7 +113,7 @@ fn agents_must_be_in_order() {
 /// A team without agents has nothing to agree on.
 #[test]
 fn empty_team_is_settled() {
-    let simulation: Simulation<Skewed> = Simulation::new(Vec::new(), Network::default());
+    let simulation: Simulation<Agent<Skewed>> = Simulation::new(Vec::new(), Network::default());
 
     assert!(simulation.is_settled());
     assert_eq!(simulation.assignment().agents(), 0);
@@ -145,4 +145,15 @@ fn fresh_team_is_not_settled() {
 
     assert!(!simulation.is_settled());
     assert!(simulation.agents().iter().all(Agent::can_bid));
+}
+
+/// A simulation can be cloned, to branch a run: the copy continues independently.
+#[test]
+fn simulations_clone() {
+    let mut original = Simulation::new(team(3, 6, 2), Network::default());
+    original.step();
+    let mut copy = original.clone();
+
+    copy.step();
+    assert_eq!(original.tick() + 1, copy.tick());
 }

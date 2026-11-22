@@ -127,7 +127,7 @@ impl PathScore<TaskId> for Drone {
 /// Checks the shared link: every photo uploads while it is taken, and the link carries one
 /// upload at a time. Prints the first overload, if any.
 fn check_link(
-    simulation: &Simulation<BestInsertion<Drone>>,
+    simulation: &Simulation<Agent<BestInsertion<Drone>>>,
 ) -> Result<(), resource_timeline::Error> {
     let mut link = Timeline::claimable(0, 1, POINTS.len())?;
     for agent in simulation.agents() {
