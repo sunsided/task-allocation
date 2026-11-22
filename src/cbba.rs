@@ -68,7 +68,8 @@ use alloc::vec::Vec;
 use crate::bundle::Bundle;
 use crate::id::{AgentId, TaskId};
 use crate::valuation::Valuation;
-use table::{Action, Claim, Exchange};
+pub(crate) use table::Action;
+use table::{Claim, Exchange};
 
 /// One CBBA agent: its valuation, its bundle, and what it knows about every task's winner.
 ///
@@ -302,15 +303,25 @@ impl<V: Valuation<TaskId>> Agent<V> {
     /// Messages from this agent itself, from agents outside the team, of a different task
     /// count, or older than what this agent has already seen of the sender are ignored.
     pub fn receive(&mut self, message: &Message) -> bool {
+        self.receive_with_actions(message)
+            .is_some_and(|(changed, _)| changed)
+    }
+
+    /// The consensus phase for one message, as [`receive`](Agent::receive), also returning
+    /// the table's action for every task; `None` when the message is ignored.
+    pub(crate) fn receive_with_actions(
+        &mut self,
+        message: &Message,
+    ) -> Option<(bool, Vec<Action>)> {
         if !self.accepts(message) {
-            return false;
+            return None;
         }
 
-        let mut changed = self.merge_claims(message);
+        let (mut changed, actions) = self.merge_claims(message);
         self.merge_seen(message);
         changed |= self.release_outbid();
 
-        changed
+        Some((changed, actions))
     }
 
     /// Whether `message` is worth merging: from another member of the team, about the same
@@ -325,9 +336,9 @@ impl<V: Valuation<TaskId>> Agent<V> {
             && message.seen[sender] >= self.seen[sender]
     }
 
-    /// Applies the conflict-resolution table to every task; returns whether any claim
-    /// changed.
-    fn merge_claims(&mut self, message: &Message) -> bool {
+    /// Applies the conflict-resolution table to every task; returns whether any claim changed,
+    /// and the action taken for each task.
+    fn merge_claims(&mut self, message: &Message) -> (bool, Vec<Action>) {
         let exchange = Exchange {
             receiver: self.id,
             sender: message.sender,
@@ -336,8 +347,10 @@ impl<V: Valuation<TaskId>> Agent<V> {
         };
 
         let mut changed = false;
+        let mut actions = Vec::with_capacity(self.claims.len());
         for (held, &sent) in self.claims.iter_mut().zip(&message.claims) {
-            let next = match exchange.resolve(sent, *held) {
+            let action = exchange.resolve(sent, *held);
+            let next = match action {
                 Action::Update => sent,
                 Action::Reset => Claim::NONE,
                 Action::Leave => *held,
@@ -345,9 +358,10 @@ impl<V: Valuation<TaskId>> Agent<V> {
 
             changed |= next != *held;
             *held = next;
+            actions.push(action);
         }
 
-        changed
+        (changed, actions)
     }
 
     /// Takes in the freshest clock values the sender knows of.

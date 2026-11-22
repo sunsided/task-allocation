@@ -4,6 +4,7 @@ mod auction;
 mod bundle;
 mod cbba;
 mod ccbba;
+mod ccbba_timed;
 mod centralized;
 mod support;
 mod valuation;

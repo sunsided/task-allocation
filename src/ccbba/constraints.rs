@@ -48,6 +48,10 @@ pub struct Constraints {
 
     /// The activities: their tasks, in matrix order, and their dependency matrices.
     activities: Vec<Activity>,
+
+    /// For each task, the opening of its time window: the earliest it may start, in the
+    /// time unit of the agents' routes. Zero unless set.
+    openings: Vec<u64>,
 }
 
 /// A group of coupled tasks with its dependency matrix.
@@ -58,6 +62,10 @@ struct Activity {
 
     /// `dependency[q][u]`: how the tasks at positions `q` and `u` relate; see [`Constraints`].
     dependency: Vec<Vec<i8>>,
+
+    /// `timing[q][u]`: the most task `q` may start after task `u` starts; `None` for no
+    /// limit. Finite only between dependent tasks.
+    timing: Vec<Vec<Option<i64>>>,
 }
 
 /// Why an activity was rejected.
@@ -78,6 +86,16 @@ pub enum ConstraintError {
 
     /// An entry is not `-1`, `0` or `1`.
     UnsupportedCode(i8),
+
+    /// The timing matrix is not square with one row per task.
+    TimingShape,
+
+    /// A diagonal entry of the timing matrix is not zero or unbounded.
+    TimingDiagonal,
+
+    /// The timing matrix limits two tasks that do not depend on each other in either
+    /// direction; the paper defines no windows or release rules for those.
+    TimingWithoutDependency,
 }
 
 impl fmt::Display for ConstraintError {
@@ -89,6 +107,11 @@ impl fmt::Display for ConstraintError {
             Self::Diagonal => f.write_str("the dependency matrix needs a zero diagonal"),
             Self::UnsupportedCode(code) => {
                 write!(f, "dependency code {code} is not supported; use -1, 0 or 1")
+            }
+            Self::TimingShape => f.write_str("the timing matrix needs one row and column per task"),
+            Self::TimingDiagonal => f.write_str("the timing matrix needs a zero diagonal"),
+            Self::TimingWithoutDependency => {
+                f.write_str("timing limits apply only between dependent tasks")
             }
         }
     }
@@ -103,10 +126,12 @@ impl Constraints {
         Self {
             membership: vec![None; tasks],
             activities: Vec::new(),
+            openings: vec![0; tasks],
         }
     }
 
-    /// Adds an activity: `tasks`, related by `dependency` as described on [`Constraints`].
+    /// Adds an activity: `tasks`, related by `dependency` as described on [`Constraints`],
+    /// without timing limits.
     ///
     /// # Errors
     ///
@@ -118,8 +143,64 @@ impl Constraints {
         tasks: &[TaskId],
         dependency: &[&[i8]],
     ) -> Result<(), ConstraintError> {
+        let unbounded = vec![None; tasks.len()];
+        let rows: Vec<&[Option<i64>]> = tasks.iter().map(|_| unbounded.as_slice()).collect();
+
+        self.add_timed_activity(tasks, dependency, &rows)
+    }
+
+    /// Adds an activity whose dependent tasks must also start within limits of each other.
+    ///
+    /// `timing[q][u]` is the most task `q` may start after task `u` starts, in the time unit
+    /// of the agents' routes; negative values make `q` start before `u`; `None` sets no
+    /// limit. Together, `u` imposes on `q` the window `start(u) - timing[u][q]` to
+    /// `start(u) + timing[q][u]`. This is the matrix `T` of Whitten, Choi, Johnson and How.
+    ///
+    /// # Errors
+    ///
+    /// As [`add_activity`](Constraints::add_activity), plus when the timing matrix is not
+    /// square with one row per task, has a diagonal other than zero or `None`, or limits two
+    /// tasks that do not depend on each other.
+    ///
+    /// # Examples
+    ///
+    /// The paper's strike activity: the strike (task 0) and the sensing (task 1) start within
+    /// 20 seconds of each other, and the damage assessment (task 2) starts at least 180
+    /// seconds after the strike and the sensing. Task 3, gathering intelligence instead,
+    /// excludes all three.
+    ///
+    /// ```
+    /// use task_allocation::TaskId;
+    /// use task_allocation::ccbba::Constraints;
+    ///
+    /// let mut constraints = Constraints::new(4);
+    /// constraints
+    ///     .add_timed_activity(
+    ///         &[TaskId(0), TaskId(1), TaskId(2), TaskId(3)],
+    ///         &[&[0, 1, 1, -1], &[1, 0, 1, -1], &[0, 0, 0, -1], &[-1, -1, -1, 0]],
+    ///         &[
+    ///             &[Some(0), Some(20), Some(-180), None],
+    ///             &[Some(20), Some(0), Some(-180), None],
+    ///             &[None, None, Some(0), None],
+    ///             &[None, None, None, Some(0)],
+    ///         ],
+    ///     )
+    ///     .unwrap();
+    ///
+    /// // A strike starting at 100 lets the sensing start from 80 to 120, and the damage
+    /// // assessment from 280 on.
+    /// assert_eq!(constraints.window(TaskId(1), TaskId(0), 100), (Some(80), Some(120)));
+    /// assert_eq!(constraints.window(TaskId(2), TaskId(0), 100), (Some(280), None));
+    /// ```
+    pub fn add_timed_activity(
+        &mut self,
+        tasks: &[TaskId],
+        dependency: &[&[i8]],
+        timing: &[&[Option<i64>]],
+    ) -> Result<(), ConstraintError> {
         self.check_tasks(tasks)?;
         check_matrix(tasks.len(), dependency)?;
+        check_timing(dependency, timing)?;
 
         let activity = self.activities.len();
         for (position, task) in tasks.iter().enumerate() {
@@ -129,9 +210,100 @@ impl Constraints {
         self.activities.push(Activity {
             tasks: tasks.to_vec(),
             dependency: dependency.iter().map(|row| row.to_vec()).collect(),
+            timing: timing.iter().map(|row| row.to_vec()).collect(),
         });
 
         Ok(())
+    }
+
+    /// Sets the opening of `task`'s time window, the earliest it may start. Agents that
+    /// conflict over two mutually dependent tasks compare how far into their windows they
+    /// start, and the earlier one gives way.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `task` is not part of the task set.
+    pub fn set_opening(&mut self, task: TaskId, opening: u64) {
+        self.openings[task.index()] = opening;
+    }
+
+    /// The opening of `task`'s time window; zero unless set.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `task` is not part of the task set.
+    #[must_use]
+    pub fn opening(&self, task: TaskId) -> u64 {
+        self.openings[task.index()]
+    }
+
+    /// The window `other`, starting at `start`, imposes on `task`: the earliest and the
+    /// latest start, each `None` when unbounded. Only a task that depends on `other` gets a
+    /// window; otherwise both are `None`. Bounds are not clamped at zero.
+    #[must_use]
+    pub fn window(&self, task: TaskId, other: TaskId, start: u64) -> (Option<i128>, Option<i128>) {
+        let Some((after, before, depends)) = self.timing_between(task, other) else {
+            return (None, None);
+        };
+
+        if !depends {
+            return (None, None);
+        }
+
+        let start = i128::from(start);
+
+        (
+            before.map(|lead| start - i128::from(lead)),
+            after.map(|lag| start + i128::from(lag)),
+        )
+    }
+
+    /// Whether starts at `start` for `task` and `other_start` for `other` respect the
+    /// timing limits between them, in both directions.
+    #[must_use]
+    pub fn starts_agree(&self, task: TaskId, start: u64, other: TaskId, other_start: u64) -> bool {
+        let Some((after, before, _)) = self.timing_between(task, other) else {
+            return true;
+        };
+
+        let (start, other_start) = (i128::from(start), i128::from(other_start));
+        let late_enough = after.is_none_or(|lag| start <= other_start + i128::from(lag));
+        let early_enough = before.is_none_or(|lead| other_start <= start + i128::from(lead));
+
+        late_enough && early_enough
+    }
+
+    /// The other tasks in `task`'s activity; none for an unconstrained task.
+    pub(crate) fn activity_tasks(&self, task: TaskId) -> impl Iterator<Item = TaskId> + '_ {
+        self.related(task).map(|(other, _, _)| other)
+    }
+
+    /// Whether `task` depends on `other`.
+    #[must_use]
+    pub fn depends_on(&self, task: TaskId, other: TaskId) -> bool {
+        self.requirements(task).any(|required| required == other)
+    }
+
+    /// `timing[task][other]`, `timing[other][task]`, and whether `task` depends on `other`;
+    /// `None` when the two are not in the same activity.
+    fn timing_between(
+        &self,
+        task: TaskId,
+        other: TaskId,
+    ) -> Option<(Option<i64>, Option<i64>, bool)> {
+        let (activity, q) = self.membership.get(task.index()).copied().flatten()?;
+        let (other_activity, u) = self.membership.get(other.index()).copied().flatten()?;
+        if activity != other_activity || q == u {
+            return None;
+        }
+
+        let activity = &self.activities[activity];
+
+        Some((
+            activity.timing[q][u],
+            activity.timing[u][q],
+            activity.dependency[u][q] == 1,
+        ))
     }
 
     /// Checks that every task is known, and in no activity yet, nor twice in `tasks`.
@@ -221,6 +393,35 @@ impl Constraints {
                 self.requirements(task).all(assigned) && !self.exclusions(task).any(assigned)
             })
     }
+}
+
+/// Checks that `timing` is a square matrix of the same side as `dependency`, with a zero or
+/// unbounded diagonal, and finite only between tasks that depend on each other in some
+/// direction.
+fn check_timing(dependency: &[&[i8]], timing: &[&[Option<i64>]]) -> Result<(), ConstraintError> {
+    let size = dependency.len();
+    if timing.len() != size || timing.iter().any(|row| row.len() != size) {
+        return Err(ConstraintError::TimingShape);
+    }
+
+    for (q, row) in timing.iter().enumerate() {
+        for (u, &limit) in row.iter().enumerate() {
+            if q == u {
+                if limit.is_some_and(|limit| limit != 0) {
+                    return Err(ConstraintError::TimingDiagonal);
+                }
+
+                continue;
+            }
+
+            let dependent = dependency[q][u] == 1 || dependency[u][q] == 1;
+            if limit.is_some() && !dependent {
+                return Err(ConstraintError::TimingWithoutDependency);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Checks that `dependency` is a square matrix of side `size` with a zero diagonal and

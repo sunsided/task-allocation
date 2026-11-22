@@ -36,8 +36,10 @@
 //!   comparison would make both tasks give way.
 
 mod constraints;
+mod timed;
 
 pub use constraints::{ConstraintError, Constraints};
+pub use timed::{TimedAgent, TimedMessage, Windowed};
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -80,6 +82,10 @@ struct View {
 
     /// For each task, the remaining attempts with some dependencies met.
     any: Vec<u32>,
+
+    /// For each task, the start time of its winning bid, when known; always `None` for
+    /// agents without timing.
+    starts: Vec<Option<u64>>,
 }
 
 /// A valuation that hides tasks the agent may not bid on, so CBBA's bundle phase skips them.
@@ -255,6 +261,7 @@ impl<V: Valuation<TaskId>> Agent<V> {
                 claims: vec![Claim::NONE; tasks],
                 solo: vec![optimism.solo_attempts; tasks],
                 any: vec![optimism.any_attempts; tasks],
+                starts: vec![None; tasks],
             }),
         };
 
@@ -374,8 +381,61 @@ impl<V: Valuation<TaskId>> Agent<V> {
             let outbid = gate.constraints.exclusions(task).any(|other| {
                 claims[other.index()].winner.is_some() && !mine.outbids(claims[other.index()])
             });
+            if outbid {
+                return Some((task, false));
+            }
 
-            outbid.then_some((task, false))
+            self.yields_in_time(task).then_some((task, optimistic))
+        })
+    }
+
+    /// Whether this agent must give up `task` because its start conflicts with the start of
+    /// another assigned task in its activity.
+    ///
+    /// A task that depends on the other one alone gives way; one the other depends on alone
+    /// stays. Of two mutually dependent tasks, the one that starts earlier into its time
+    /// window gives way, since it could have started later; ties go to the smaller holder,
+    /// then the smaller task.
+    fn yields_in_time(&self, task: TaskId) -> bool {
+        let gate = self.inner.valuation();
+        let view = gate.view.borrow();
+        let claims = self.inner.claims();
+        let constraints = &gate.constraints;
+        let Some(start) = view.starts[task.index()] else {
+            return false;
+        };
+
+        let mine = (
+            offset(constraints, task, start),
+            core::cmp::Reverse(self.inner.id()),
+            core::cmp::Reverse(task),
+        );
+        constraints.activity_tasks(task).any(|other| {
+            let (Some(holder), Some(other_start)) =
+                (claims[other.index()].winner, view.starts[other.index()])
+            else {
+                return false;
+            };
+
+            if constraints.starts_agree(task, start, other, other_start) {
+                return false;
+            }
+
+            match (
+                constraints.depends_on(task, other),
+                constraints.depends_on(other, task),
+            ) {
+                (true, false) => true,
+                (true, true) => {
+                    let theirs = (
+                        offset(constraints, other, other_start),
+                        core::cmp::Reverse(holder),
+                        core::cmp::Reverse(other),
+                    );
+                    mine < theirs
+                }
+                _ => false,
+            }
         })
     }
 
@@ -387,6 +447,11 @@ impl<V: Valuation<TaskId>> Agent<V> {
         let any = &mut view.any[task.index()];
         *any = any.saturating_sub(1);
     }
+}
+
+/// How far into its time window `task` starts at `start`; negative before the opening.
+fn offset(constraints: &Constraints, task: TaskId, start: u64) -> i128 {
+    i128::from(start) - i128::from(constraints.opening(task))
 }
 
 impl<V> Agent<V> {
