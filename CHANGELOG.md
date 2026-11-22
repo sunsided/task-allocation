@@ -7,7 +7,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-11-22
+## [0.1.0] - 2026-11-23
 
 ### Added
 
@@ -21,7 +21,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   timestamps, robust to delayed, lost, duplicated and reordered messages, and opt-in bundle
   replanning (`Replan`).
 - `ccbba`: coupled-constraint CBBA for tasks that depend on or exclude each other, with
-  optimistic and pessimistic bidding.
+  optimistic and pessimistic bidding, and timing limits between their starts for agents on
+  timed routes (`TimedAgent`).
 - `sim`: a deterministic simulated network with seeded delays, losses, topologies and
   partitions, for any protocol implementing `Participant`.
 - `auction`: sequential single-item auctions, and combinatorial auctions with exact winner
