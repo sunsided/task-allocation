@@ -134,3 +134,26 @@ fn message_exposes_the_senders_view() {
     assert_eq!(message.winning_bid(TaskId(0)), 5);
     assert_eq!(message.winner(TaskId(1)), None);
 }
+
+/// When the sender believes the receiver wins a task the receiver believes the sender wins,
+/// both beliefs are stale, and the receiver forgets the winner.
+#[test]
+fn crossed_beliefs_reset_the_task() {
+    let mut receiver = agent(0, 2, 1, &[0]);
+    receiver.claims[0] = super::Claim {
+        winner: Some(AgentId(1)),
+        bid: 5,
+    };
+    let message = super::Message {
+        sender: AgentId(1),
+        claims: alloc::vec![super::Claim {
+            winner: Some(AgentId(0)),
+            bid: 5,
+        }],
+        seen: alloc::vec![0, 1],
+    };
+
+    assert!(receiver.receive(&message));
+    assert_eq!(receiver.winner(TaskId(0)), None);
+    assert_eq!(receiver.winning_bid(TaskId(0)), 0);
+}
