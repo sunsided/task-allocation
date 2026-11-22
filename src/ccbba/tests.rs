@@ -191,3 +191,23 @@ fn accessors_report_the_agents_state() {
     );
     assert!(!helper.inner.give_up(TaskId(1)));
 }
+
+/// A task released along with an earlier one starts counting its wait from zero when it is
+/// added again.
+#[test]
+fn released_tasks_forget_how_long_they_waited() {
+    let mut constraints = Constraints::new(3);
+    constraints
+        .add_activity(&[TaskId(1), TaskId(2)], &[&[0, 1], &[1, 0]])
+        .unwrap();
+    let mut agent = agent(0, 2, &[9, 5, 0], &constraints);
+
+    agent.build_bundle();
+    agent.build_bundle();
+    assert_eq!(bundle_of(&agent), [0, 1]);
+    assert_eq!(agent.waited[1], 1);
+
+    agent.inner.give_up(TaskId(0));
+    agent.build_bundle();
+    assert_eq!(agent.waited[1], 0);
+}

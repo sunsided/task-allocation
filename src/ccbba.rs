@@ -7,9 +7,10 @@
 //! Control Conference 2011:
 //!
 //! - **Pessimistic bidding**: an agent bids on a task only once every task it depends on has
-//!   a winner. Tasks whose dependencies are not mutual are bid on this way.
-//! - **Optimistic bidding**: on a task in a mutual dependency, an agent may bid first and
-//!   wait for partners. If they do not appear within [`Optimism::timeout`] rounds, it gives
+//!   a winner. Tasks with no mutual dependency are bid on this way.
+//! - **Optimistic bidding**: on a task with at least one mutual dependency, an agent may
+//!   bid first and wait for its partners, for all its dependencies, one-way ones included,
+//!   as in the paper (`O_jq` non-empty). If they do not appear within [`Optimism::timeout`] rounds, it gives
 //!   the task up and loses one of a limited number of attempts. Once the attempts are used
 //!   up, it bids pessimistically.
 //! - **Mutual exclusion**: an agent bids on a task only if it outbids every task excluded by
@@ -56,12 +57,15 @@ pub struct Optimism {
     /// the paper.
     pub timeout: u32,
 
-    /// Attempts at bidding on such a task while none of the tasks it depends on has a
+    /// Attempts at bidding on such a task even while none of the tasks it depends on has a
     /// winner; `w_solo` in the paper.
     pub solo_attempts: u32,
 
-    /// Attempts at bidding on such a task while some, but not all, of the tasks it depends
-    /// on have winners; `w_any` in the paper.
+    /// Attempts at bidding on such a task once at least one of the tasks it depends on has
+    /// a winner; `w_any` in the paper, usually larger than `solo_attempts`.
+    ///
+    /// As in the paper, an agent may bid while either budget lasts (`any` only with a
+    /// dependency met), and every timeout spends one attempt from both.
     pub any_attempts: u32,
 }
 
@@ -330,13 +334,20 @@ impl<V: Valuation<TaskId>> Agent<V> {
     }
 
     /// Counts one more round for every held task with a dependency lacking a winner, and
-    /// resets the count of those whose dependencies are met.
+    /// resets the count of every other task, including tasks released since the last round,
+    /// however they were released.
     fn count_waiting(&mut self) {
         let gate = self.inner.valuation();
         let claims = self.inner.claims();
-        for &task in self.inner.bundle().tasks() {
+        let bundle = self.inner.bundle();
+        for (index, waited) in self.waited.iter_mut().enumerate() {
+            let task = TaskId(index);
+            if !bundle.contains(&task) {
+                *waited = 0;
+                continue;
+            }
+
             let (met, required) = gate.satisfied(claims, task);
-            let waited = &mut self.waited[task.index()];
             *waited = if met < required { *waited + 1 } else { 0 };
         }
     }
