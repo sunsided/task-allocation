@@ -17,6 +17,8 @@
 //!   agrees on a conflict-free assignment.
 //! - [`sim`]: a deterministic simulated network with delays, losses and partitions, to run
 //!   teams on.
+//! - [`auction`]: auction baselines with a central auctioneer: sequential single-item
+//!   auctions, and combinatorial auctions with exact winner determination.
 //! - [`centralized`]: reference allocations with full knowledge of every valuation: the
 //!   sequential greedy assignment and the exhaustive optimum for small instances.
 //!
@@ -62,6 +64,7 @@
 extern crate alloc;
 
 mod assignment;
+pub mod auction;
 mod bundle;
 pub mod cbba;
 pub mod centralized;
