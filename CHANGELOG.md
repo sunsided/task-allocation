@@ -7,6 +7,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/sunsided/task-allocation/compare/v0.1.0...v0.1.1) - 2026-11-22
+
+### Added
+
+- Add a colony benchmark with allocation counts per round
+- Add a colony-sim example, and keep the audience note short
+
+### Changed
+
+- Grow bundles in place without replanning, and test the phases directly
+- Score insertions and merge messages without allocating
+- Count round allocations in their own test, off the benchmark's clock
+
 ## [0.1.0] - 2026-11-23
 
 ### Added
