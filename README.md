@@ -21,7 +21,28 @@ Decentralized multi-agent task allocation in Rust: agents decide among themselve
 - Greedy bundle construction from marginal gains, with a check for diminishing gains
 - Centralized references: the sequential greedy assignment, and the exhaustive optimum for small instances
 
-Typical users are robot and rover teams, drone swarms and multi-agent simulations. Timing constraints between agents fit [temporal-control](https://github.com/sunsided/temporal-control), shared resource budgets [resource-timeline](https://github.com/sunsided/resource-timeline), and travel costs can come from [heuristic-search](https://github.com/sunsided/heuristic-search) or [sampling-planning](https://github.com/sunsided/sampling-planning).
+## Who this is for
+
+- Robot and rover teams, drone swarms and multi-agent simulations that split tasks without a
+  central planner, over links that drop and delay messages. CBBA settles on a conflict-free
+  assignment from whatever each agent hears, and the seeded network simulator tests that
+  before deployment.
+- Game developers assigning workers, units or squads to jobs where a job's value depends on
+  what the agent already holds: travel order, deadlines, roles that only pay off together.
+  Colony and management sims, RTS harvesting and targeting, squad roles, delivery and
+  logistics games. Bundles built from marginal gains and the auction baselines fit there;
+  scores are integers and the simulation is seeded, so runs are deterministic, which suits
+  lockstep multiplayer and replays. Decentralized CBBA matters when the AI runs across
+  servers or clients, or when NPCs should act only on what they have heard.
+- Researchers comparing allocation algorithms: CBBA, auctions and sequential greedy run on
+  the same valuations, next to an exhaustive optimum for small instances.
+- For plain one-to-one assignment with all state in one process, the Hungarian algorithm
+  (for example `kuhn_munkres` in the [pathfinding](https://crates.io/crates/pathfinding)
+  crate) is enough. Timing constraints between agents fit
+  [temporal-control](https://github.com/sunsided/temporal-control), shared resource budgets
+  [resource-timeline](https://github.com/sunsided/resource-timeline), and travel costs can
+  come from [heuristic-search](https://github.com/sunsided/heuristic-search) or
+  [sampling-planning](https://github.com/sunsided/sampling-planning).
 
 ## Usage
 
