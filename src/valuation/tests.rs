@@ -103,6 +103,46 @@ fn no_bid_when_no_task_fits() {
     assert_eq!(best_bid(&Rover, &bundle, &tasks), None);
 }
 
+/// Valuations work through references and trait objects.
+#[test]
+fn references_and_trait_objects_delegate() {
+    let dynamic: &dyn Valuation<Task> = &Rover;
+    let tasks = [Task {
+        duration: 10,
+        deadline: 20,
+        reward: 4,
+    }];
+
+    assert_eq!(best_bid(&dynamic, &[], &tasks), Some(0));
+    assert_eq!(
+        (&dynamic).best_insertion(&[], &tasks[0]),
+        Some(Insertion {
+            position: 0,
+            gain: 4
+        })
+    );
+}
+
+/// A violation explains itself.
+#[test]
+fn violation_display_names_the_tasks() {
+    /// Can take task 1 only after task 0.
+    struct Prerequisite;
+
+    impl Valuation<u8> for Prerequisite {
+        fn marginal_score(&self, path: &[u8], task: &u8) -> Option<u64> {
+            (*task == 0 || path.contains(&0)).then_some(1)
+        }
+    }
+
+    let violation = check_diminishing(&Prerequisite, &[0, 1], 2).unwrap_err();
+
+    assert_eq!(
+        alloc::format!("{violation}"),
+        "adding 0 to path [] raised the gain of 1 from None to Some(1)"
+    );
+}
+
 /// The default insertion appends the task and reports its marginal score.
 #[test]
 fn default_insertion_appends() {

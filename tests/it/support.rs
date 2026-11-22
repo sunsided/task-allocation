@@ -187,7 +187,8 @@ fn agent(sites: Vec<Site>) -> impl Strategy<Value = Agent> {
 /// A random instance whose agents all use [`Coverage`]: submodular set functions, for which
 /// the greedy approximation bounds hold.
 pub fn coverage_instance() -> impl Strategy<Value = Instance> {
-    (1..=MAX_TASKS, 1..=MAX_AGENTS, 1..=MAX_TASKS)
+    (1..=MAX_TASKS, 1..=MAX_AGENTS)
+        .prop_flat_map(|(tasks, agents)| (Just(tasks), Just(agents), 1..=tasks))
         .prop_flat_map(|(tasks, agents, capacity)| {
             (
                 vec(coverage(tasks).prop_map(Agent::Coverage), agents),
@@ -204,7 +205,8 @@ pub fn coverage_instance() -> impl Strategy<Value = Instance> {
 
 /// A random instance with up to [`MAX_AGENTS`] agents and [`MAX_TASKS`] tasks.
 pub fn instance() -> impl Strategy<Value = Instance> {
-    (1..=MAX_TASKS, 1..=MAX_AGENTS, 1..=MAX_TASKS)
+    (1..=MAX_TASKS, 1..=MAX_AGENTS)
+        .prop_flat_map(|(tasks, agents)| (Just(tasks), Just(agents), 1..=tasks))
         .prop_flat_map(|(tasks, agents, capacity)| {
             sites(tasks).prop_flat_map(move |sites| {
                 (vec(agent(sites), agents), Just(tasks), Just(capacity))

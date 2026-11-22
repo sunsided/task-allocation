@@ -43,6 +43,15 @@ fn well_formed(instance: &Instance, assignment: &Assignment) -> Result<(), TestC
     Ok(())
 }
 
+/// Without agents, nothing is assigned.
+#[test]
+fn no_agents_assign_nothing() {
+    let none: [crate::support::Agent; 0] = [];
+
+    assert_eq!(optimal(&none, 3, 1).agents(), 0);
+    assert_eq!(sequential_greedy(&none, 3, 1).value(), 0);
+}
+
 proptest! {
     /// Both references return well-formed assignments, and greedy never beats the optimum.
     #[test]

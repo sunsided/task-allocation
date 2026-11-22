@@ -8,8 +8,11 @@ use crate::bundle::Bundle;
 use crate::id::TaskId;
 use crate::valuation::Valuation;
 
-/// The most tasks [`optimal`] accepts. The search grows with `3^tasks` per agent.
-pub const MAX_OPTIMAL_TASKS: usize = 16;
+/// The most tasks [`optimal`] accepts.
+///
+/// With ten tasks and no capacity limit, the build orders alone come to almost ten million
+/// per agent. Beyond that, the search would run for hours.
+pub const MAX_OPTIMAL_TASKS: usize = 10;
 
 /// The assignment of tasks `0..tasks` to `agents`, each holding at most `capacity` tasks,
 /// with the highest [`Assignment::value`].
@@ -18,8 +21,12 @@ pub const MAX_OPTIMAL_TASKS: usize = 16;
 /// every order in which the agent can build it, inserting each task where
 /// [`Valuation::best_insertion`] puts it. The search tries every build order of every task
 /// set for every agent, then every split of the tasks among the agents. Use it as a
-/// reference on small instances: up to about eight tasks it finishes in well under a second.
-/// Of equally good assignments, the first one found is returned.
+/// reference on small instances. Of equally good assignments, the first one found is
+/// returned.
+///
+/// With `n` tasks and capacity `c`, each agent explores the `n! / (n - k)!` build orders of
+/// every length `k` up to `c`. The split takes `3^n` steps per agent. In an optimized build
+/// with three agents, eight tasks take tens of milliseconds and ten about a second.
 ///
 /// # Panics
 ///

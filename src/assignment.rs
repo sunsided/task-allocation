@@ -117,6 +117,7 @@ mod tests {
         give(&mut assignment, 1, 0, 3);
 
         assert_eq!(assignment.agents(), 2);
+        assert_eq!(assignment.bundles().len(), 2);
         assert_eq!(assignment.holder(TaskId(1)), Some(AgentId(0)));
         assert_eq!(assignment.holder(TaskId(2)), None);
         assert_eq!(assignment.value(), 7);
