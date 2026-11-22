@@ -211,3 +211,65 @@ fn released_tasks_forget_how_long_they_waited() {
     agent.build_bundle();
     assert_eq!(agent.waited[1], 0);
 }
+
+/// Timing matrices are validated, and limits only bind dependent tasks.
+#[test]
+fn timing_is_validated() {
+    let mut constraints = Constraints::new(3);
+    let tasks = [TaskId(0), TaskId(1)];
+    let depends: [&[i8]; 2] = [&[0, 1], &[0, 0]];
+    let unrelated: [&[i8]; 2] = [&[0, 0], &[0, 0]];
+
+    assert_eq!(
+        constraints.add_timed_activity(&tasks, &depends, &[&[Some(0)]]),
+        Err(ConstraintError::TimingShape)
+    );
+    assert_eq!(
+        constraints.add_timed_activity(&tasks, &depends, &[&[Some(1), None], &[None, None]]),
+        Err(ConstraintError::TimingDiagonal)
+    );
+    assert_eq!(
+        constraints.add_timed_activity(&tasks, &unrelated, &[&[None, Some(5)], &[None, None]]),
+        Err(ConstraintError::TimingWithoutDependency)
+    );
+
+    constraints
+        .add_timed_activity(&tasks, &depends, &[&[None, Some(-2)], &[Some(9), None]])
+        .unwrap();
+    constraints.set_opening(TaskId(1), 40);
+
+    assert_eq!(constraints.opening(TaskId(1)), 40);
+    assert_eq!(
+        constraints.window(TaskId(1), TaskId(0), 10),
+        (Some(12), Some(19))
+    );
+    assert_eq!(constraints.window(TaskId(0), TaskId(1), 10), (None, None));
+    assert_eq!(constraints.window(TaskId(2), TaskId(0), 10), (None, None));
+    assert!(constraints.starts_agree(TaskId(1), 15, TaskId(0), 10));
+    assert!(!constraints.starts_agree(TaskId(1), 11, TaskId(0), 10));
+    assert!(constraints.starts_agree(TaskId(2), 0, TaskId(0), 99));
+}
+
+/// Every error explains itself.
+#[test]
+fn errors_display() {
+    let errors = [
+        ConstraintError::UnknownTask(TaskId(4)),
+        ConstraintError::DuplicateTask(TaskId(1)),
+        ConstraintError::Shape,
+        ConstraintError::Diagonal,
+        ConstraintError::UnsupportedCode(2),
+        ConstraintError::TimingShape,
+        ConstraintError::TimingDiagonal,
+        ConstraintError::TimingWithoutDependency,
+    ];
+
+    for error in errors {
+        assert_ne!(alloc::format!("{error}"), "");
+    }
+
+    assert_eq!(
+        alloc::format!("{}", ConstraintError::UnknownTask(TaskId(4))),
+        "task 4 is not part of the task set"
+    );
+}

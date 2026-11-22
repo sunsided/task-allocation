@@ -74,6 +74,38 @@ pub trait Route {
     fn reward(&self, task: TaskId, finish: u64) -> Option<u64>;
 }
 
+impl<R: Route + ?Sized> Route for &R {
+    type Place = R::Place;
+
+    fn origin(&self) -> Self::Place {
+        (**self).origin()
+    }
+
+    fn departure(&self) -> u64 {
+        (**self).departure()
+    }
+
+    fn place(&self, task: TaskId) -> Self::Place {
+        (**self).place(task)
+    }
+
+    fn travel(&self, from: &Self::Place, to: &Self::Place) -> Option<u64> {
+        (**self).travel(from, to)
+    }
+
+    fn duration(&self, task: TaskId) -> u64 {
+        (**self).duration(task)
+    }
+
+    fn earliest_start(&self, task: TaskId) -> u64 {
+        (**self).earliest_start(task)
+    }
+
+    fn reward(&self, task: TaskId, finish: u64) -> Option<u64> {
+        (**self).reward(task, finish)
+    }
+}
+
 /// One task of a timed route: when the agent arrives, starts, finishes, and what it earns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Visit {

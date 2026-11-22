@@ -13,7 +13,7 @@ Decentralized multi-agent task allocation in Rust: agents decide among themselve
 ## Scope
 
 - Consensus-based bundle algorithm (CBBA) and its variants, converging to conflict-free assignments under delayed and intermittent communication
-- Coupled-constraint CBBA for tasks that depend on or exclude each other
+- Coupled-constraint CBBA for tasks that depend on or exclude each other, and that must start within limits of each other
 - Sequential and combinatorial auctions as baselines
 - Task scores from user-supplied costs, such as travel time, deadlines or resource use
 - A deterministic simulated network (seeded delays, losses and partitions) to test teams on
