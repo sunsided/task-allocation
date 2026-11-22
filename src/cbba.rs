@@ -198,8 +198,23 @@ impl<V: Valuation<TaskId>> Agent<V> {
     /// number of tasks added after the release.
     ///
     /// Each added task's bid is its marginal gain, and this agent becomes its winner in its
-    /// own tables.
+    /// own tables. With [`Replan::Keep`], the bundle grows in place, without allocating once
+    /// the bundle has reached its capacity before.
     pub fn build_bundle(&mut self) -> usize {
+        if self.replan == Replan::Keep {
+            let Self {
+                id,
+                valuation,
+                capacity,
+                bundle,
+                claims,
+                tasks,
+                ..
+            } = self;
+
+            return extend_and_claim(*id, valuation, tasks, *capacity, bundle, claims);
+        }
+
         let (bundle, claims, added) = self.rebuilt();
         self.bundle = bundle;
         self.claims = claims;
@@ -239,20 +254,15 @@ impl<V: Valuation<TaskId>> Agent<V> {
         let mut claims = self.claims.clone();
         self.release_for_replan(&mut bundle, &mut claims);
 
-        let id = self.id;
-        let before = bundle.len();
-        bundle.extend_greedily(&self.valuation, &self.tasks, self.capacity, |task, gain| {
-            Self::wins(id, &claims, *task, gain)
-        });
+        let added = extend_and_claim(
+            self.id,
+            &self.valuation,
+            &self.tasks,
+            self.capacity,
+            &mut bundle,
+            &mut claims,
+        );
 
-        for (task, gain) in bundle.entries().skip(before) {
-            claims[task.index()] = Claim {
-                winner: Some(id),
-                bid: gain,
-            };
-        }
-
-        let added = bundle.len() - before;
         (bundle, claims, added)
     }
 
@@ -303,25 +313,26 @@ impl<V: Valuation<TaskId>> Agent<V> {
     /// Messages from this agent itself, from agents outside the team, of a different task
     /// count, or older than what this agent has already seen of the sender are ignored.
     pub fn receive(&mut self, message: &Message) -> bool {
-        self.receive_with_actions(message)
-            .is_some_and(|(changed, _)| changed)
+        self.receive_with_actions(message, |_, _| {})
+            .unwrap_or(false)
     }
 
-    /// The consensus phase for one message, as [`receive`](Agent::receive), also returning
-    /// the table's action for every task; `None` when the message is ignored.
+    /// The consensus phase for one message, as [`receive`](Agent::receive), also reporting
+    /// the table's action for every task to `on_action`; `None` when the message is ignored.
     pub(crate) fn receive_with_actions(
         &mut self,
         message: &Message,
-    ) -> Option<(bool, Vec<Action>)> {
+        on_action: impl FnMut(TaskId, Action),
+    ) -> Option<bool> {
         if !self.accepts(message) {
             return None;
         }
 
-        let (mut changed, actions) = self.merge_claims(message);
+        let mut changed = self.merge_claims(message, on_action);
         self.merge_seen(message);
         changed |= self.release_outbid();
 
-        Some((changed, actions))
+        Some(changed)
     }
 
     /// Whether `message` is worth merging: from another member of the team, about the same
@@ -336,9 +347,13 @@ impl<V: Valuation<TaskId>> Agent<V> {
             && message.seen[sender] >= self.seen[sender]
     }
 
-    /// Applies the conflict-resolution table to every task; returns whether any claim changed,
-    /// and the action taken for each task.
-    fn merge_claims(&mut self, message: &Message) -> (bool, Vec<Action>) {
+    /// Applies the conflict-resolution table to every task, reporting each action to
+    /// `on_action`; returns whether any claim changed.
+    fn merge_claims(
+        &mut self,
+        message: &Message,
+        mut on_action: impl FnMut(TaskId, Action),
+    ) -> bool {
         let exchange = Exchange {
             receiver: self.id,
             sender: message.sender,
@@ -347,8 +362,7 @@ impl<V: Valuation<TaskId>> Agent<V> {
         };
 
         let mut changed = false;
-        let mut actions = Vec::with_capacity(self.claims.len());
-        for (held, &sent) in self.claims.iter_mut().zip(&message.claims) {
+        for (index, (held, &sent)) in self.claims.iter_mut().zip(&message.claims).enumerate() {
             let action = exchange.resolve(sent, *held);
             let next = match action {
                 Action::Update => sent,
@@ -358,10 +372,10 @@ impl<V: Valuation<TaskId>> Agent<V> {
 
             changed |= next != *held;
             *held = next;
-            actions.push(action);
+            on_action(TaskId(index), action);
         }
 
-        (changed, actions)
+        changed
     }
 
     /// Takes in the freshest clock values the sender knows of.
@@ -409,6 +423,32 @@ impl<V: Valuation<TaskId>> Agent<V> {
 
         true
     }
+}
+
+/// Extends `bundle` greedily with the tasks agent `id` can win against `claims`, up to
+/// `capacity`, and records the agent as the winner of each added task, at its gain; returns
+/// the number of tasks added.
+fn extend_and_claim<V: Valuation<TaskId>>(
+    id: AgentId,
+    valuation: &V,
+    tasks: &[TaskId],
+    capacity: usize,
+    bundle: &mut Bundle<TaskId>,
+    claims: &mut [Claim],
+) -> usize {
+    let before = bundle.len();
+    bundle.extend_greedily(valuation, tasks, capacity, |task, gain| {
+        Agent::<V>::wins(id, claims, *task, gain)
+    });
+
+    for (task, gain) in bundle.entries().skip(before) {
+        claims[task.index()] = Claim {
+            winner: Some(id),
+            bid: gain,
+        };
+    }
+
+    bundle.len() - before
 }
 
 impl<V> Agent<V> {
