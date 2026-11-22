@@ -109,7 +109,9 @@ impl fmt::Display for ConstraintError {
                 write!(f, "dependency code {code} is not supported; use -1, 0 or 1")
             }
             Self::TimingShape => f.write_str("the timing matrix needs one row and column per task"),
-            Self::TimingDiagonal => f.write_str("the timing matrix needs a zero diagonal"),
+            Self::TimingDiagonal => {
+                f.write_str("the timing matrix needs a zero or unbounded diagonal")
+            }
             Self::TimingWithoutDependency => {
                 f.write_str("timing limits apply only between dependent tasks")
             }

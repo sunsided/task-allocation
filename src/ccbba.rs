@@ -359,11 +359,13 @@ impl<V: Valuation<TaskId>> Agent<V> {
         }
     }
 
-    /// The first held task whose constraints fail, and whether it is an optimistic task that
-    /// waited too long; `None` when all hold.
+    /// The first held task whose constraints fail, and whether giving it up spends an
+    /// optimistic attempt; `None` when all hold.
     ///
-    /// A task fails when a dependency has no winner and it is pessimistic or timed out, or
-    /// when the winner of an excluded task outbids it.
+    /// A task fails when a dependency has no winner and it is pessimistic or timed out, when
+    /// the winner of an excluded task outbids it, or when its start conflicts with a
+    /// partner's. As in the paper (Section IV-F), a timeout or a timing conflict on a task
+    /// bid optimistically spends an attempt; an exclusion does not.
     fn violation(&self) -> Option<(TaskId, bool)> {
         let gate = self.inner.valuation();
         let claims = self.inner.claims();
