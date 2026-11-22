@@ -20,6 +20,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `cbba`: the consensus-based bundle algorithm, with logical clocks instead of synchronized
   timestamps, robust to delayed, lost, duplicated and reordered messages, and opt-in bundle
   replanning (`Replan`).
+- `ccbba`: coupled-constraint CBBA for tasks that depend on or exclude each other, with
+  optimistic and pessimistic bidding.
 - `sim`: a deterministic simulated network with seeded delays, losses, topologies and
   partitions, for any protocol implementing `Participant`.
 - `auction`: sequential single-item auctions, and combinatorial auctions with exact winner
