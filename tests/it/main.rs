@@ -1,5 +1,6 @@
 //! Property tests for valuations, bundle construction and the centralized references.
 
+mod acbba;
 mod auction;
 mod bundle;
 mod cbba;
