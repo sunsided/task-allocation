@@ -3,7 +3,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::{Network, Partition, Simulation};
+use super::{Network, Partition, Simulation, Topology};
 use crate::cbba::Agent;
 use crate::centralized::sequential_greedy;
 use crate::id::{AgentId, TaskId};
@@ -52,6 +52,7 @@ fn runs_are_reproducible() {
         seed: 11,
         max_delay: 4,
         loss_per_mille: 300,
+        topology: Topology::Complete,
         partitions: Vec::new(),
     };
     let mut first = Simulation::new(team(3, 6, 2), network.clone());
@@ -116,4 +117,23 @@ fn empty_team_is_settled() {
 
     assert!(simulation.is_settled());
     assert_eq!(simulation.assignment().agents(), 0);
+}
+
+/// Agents on a line hear of each other only through relays, and still settle.
+#[test]
+fn line_topology_relays() {
+    let line = (1..4)
+        .map(|agent| (AgentId(agent - 1), AgentId(agent)))
+        .collect();
+    let network = Network {
+        topology: Topology::Links(line),
+        ..Network::default()
+    };
+    let mut simulation = Simulation::new(team(4, 6, 2), network);
+
+    assert!(simulation.run_until_settled(200).is_some());
+    assert!(simulation.assignment().is_conflict_free());
+    assert!(simulation.stats().blocked > 0);
+    assert!(Topology::Links(vec![(AgentId(0), AgentId(1))]).connects(AgentId(1), AgentId(0)));
+    assert!(!Topology::Links(vec![]).connects(AgentId(1), AgentId(0)));
 }

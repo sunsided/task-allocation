@@ -143,8 +143,9 @@ impl Exchange<'_> {
     /// sender's `winner` and the receiver's `held_winner`.
     ///
     /// When the sender knows `held_winner` better, it updates unless the receiver knows
-    /// `winner` better, which resets. The paper leaves the case where both know `winner`
-    /// equally well open; like the authors' reference implementation, this updates.
+    /// `winner` better, which resets. When both know `winner` equally well, this updates,
+    /// as the open-source CBBA-Python implementation of the table does
+    /// (<https://github.com/zehuilu/CBBA-Python>).
     fn two_third_parties(
         &self,
         winner: AgentId,

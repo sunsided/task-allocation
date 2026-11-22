@@ -103,14 +103,21 @@ use task_allocation::cbba::Agent;
 use task_allocation::sim::{Network, Simulation};
 use task_allocation::{AgentId, TaskId, Valuation};
 
-# const SITES: [u64; 3] = [10, 40, 90];
-# struct Rover { start: u64 }
-# impl Valuation<TaskId> for Rover {
-#     fn marginal_score(&self, path: &[TaskId], task: &TaskId) -> Option<u64> {
-#         let from = path.last().map_or(self.start, |last| SITES[last.index()]);
-#         100_u64.checked_sub(from.abs_diff(SITES[task.index()]))
-#     }
-# }
+/// The same rovers as above.
+const SITES: [u64; 3] = [10, 40, 90];
+
+struct Rover {
+    start: u64,
+}
+
+impl Valuation<TaskId> for Rover {
+    fn marginal_score(&self, path: &[TaskId], task: &TaskId) -> Option<u64> {
+        let from = path.last().map_or(self.start, |last| SITES[last.index()]);
+
+        100_u64.checked_sub(from.abs_diff(SITES[task.index()]))
+    }
+}
+
 let agents = vec![
     Agent::new(AgentId(0), 2, SITES.len(), 2, Rover { start: 0 }),
     Agent::new(AgentId(1), 2, SITES.len(), 2, Rover { start: 100 }),

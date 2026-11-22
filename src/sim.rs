@@ -10,7 +10,8 @@
 //!     broadcast --> deliver
 //! ```
 //!
-//! A broadcast reaches every other agent not cut off by an active [`Partition`]. Each copy is
+//! A broadcast reaches every agent the sender has a link to in the [`Topology`] and is not
+//! cut off from by an active [`Partition`]; others hear of it only when it is relayed. Each copy is
 //! lost with probability [`Network::loss_per_mille`] / 1000, and otherwise arrives after
 //! 1 to `1 + max_delay` ticks, so messages overtake each other. Agents process the messages
 //! that arrive in a tick in arrival order. Everything random comes from [`Network::seed`]: the
@@ -44,8 +45,34 @@ pub struct Network {
     /// more loses everything.
     pub loss_per_mille: u16,
 
+    /// Which agents can reach each other at all.
+    pub topology: Topology,
+
     /// Intervals in which groups of agents cannot reach each other.
     pub partitions: Vec<Partition>,
+}
+
+/// Which pairs of agents can exchange messages directly. Agents without a direct link only
+/// hear of each other through relays.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Topology {
+    /// Every agent reaches every other agent.
+    #[default]
+    Complete,
+
+    /// Only the listed pairs reach each other, in both directions.
+    Links(Vec<(AgentId, AgentId)>),
+}
+
+impl Topology {
+    /// Whether `a` and `b` can exchange messages directly.
+    #[must_use]
+    pub fn connects(&self, a: AgentId, b: AgentId) -> bool {
+        match self {
+            Self::Complete => true,
+            Self::Links(links) => links.iter().any(|&link| link == (a, b) || link == (b, a)),
+        }
+    }
 }
 
 /// A time interval in which agents in different groups cannot reach each other.
@@ -88,7 +115,8 @@ pub struct Stats {
     /// Copies the network lost.
     pub lost: u64,
 
-    /// Copies that could not be sent because a partition cut the receiver off.
+    /// Copies that could not be sent because the topology has no link to the receiver, or a
+    /// partition cut it off.
     pub blocked: u64,
 }
 
@@ -262,12 +290,14 @@ impl<V: Valuation<TaskId>> Simulation<V> {
         self.next_order += 1;
     }
 
-    /// Whether an active partition separates `a` and `b` now.
+    /// Whether `a` and `b` have no direct link, or an active partition separates them now.
     fn is_cut_off(&self, a: AgentId, b: AgentId) -> bool {
-        self.network
-            .partitions
-            .iter()
-            .any(|partition| partition.separates(self.tick, a, b))
+        !self.network.topology.connects(a, b)
+            || self
+                .network
+                .partitions
+                .iter()
+                .any(|partition| partition.separates(self.tick, a, b))
     }
 }
 

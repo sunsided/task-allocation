@@ -210,7 +210,12 @@ pub fn instance() -> impl Strategy<Value = Instance> {
 
 /// A random instance with up to `max_agents` agents and [`MAX_TASKS`] tasks.
 pub fn instance_with(max_agents: usize) -> impl Strategy<Value = Instance> {
-    (1..=MAX_TASKS, 1..=max_agents)
+    instance_sized(max_agents, MAX_TASKS)
+}
+
+/// A random instance with up to `max_agents` agents and `max_tasks` tasks, at most 16.
+pub fn instance_sized(max_agents: usize, max_tasks: usize) -> impl Strategy<Value = Instance> {
+    (1..=max_tasks, 1..=max_agents)
         .prop_flat_map(|(tasks, agents)| (Just(tasks), Just(agents), 1..=tasks))
         .prop_flat_map(|(tasks, agents, capacity)| {
             sites(tasks).prop_flat_map(move |sites| {

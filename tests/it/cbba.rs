@@ -5,11 +5,11 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use task_allocation::cbba::Agent;
 use task_allocation::centralized::optimal;
-use task_allocation::sim::{Network, Partition, Simulation};
+use task_allocation::sim::{Network, Partition, Simulation, Topology};
 use task_allocation::{AgentId, Assignment, TaskId, Valuation};
 
 use crate::bundle::gains_replay;
-use crate::support::{self, Instance, instance_with};
+use crate::support::{self, Instance, instance_sized, instance_with};
 
 /// The most agents in a generated team; enough for messages relayed through third parties.
 const MAX_TEAM: usize = 6;
@@ -27,25 +27,57 @@ fn partition(agents: usize) -> impl Strategy<Value = Partition> {
     })
 }
 
-/// A network with up to 5 ticks of extra delay, up to 50% loss, and up to three partitions.
+/// A connected topology over `agents` agents: complete, or a random spanning tree with a
+/// few extra links, so that some agents hear of each other only through relays.
+fn topology(agents: usize) -> impl Strategy<Value = Topology> {
+    let parents = (1..agents.max(2)).map(|agent| 0..agent).collect::<Vec<_>>();
+    let tree = parents.prop_map(|parents| {
+        parents
+            .into_iter()
+            .enumerate()
+            .map(|(index, parent)| (AgentId(parent), AgentId(index + 1)))
+            .collect::<Vec<_>>()
+    });
+    let extra = vec((0..agents, 0..agents), 0..agents);
+    let sparse = (tree, extra).prop_map(|(mut links, extra)| {
+        links.extend(extra.into_iter().map(|(a, b)| (AgentId(a), AgentId(b))));
+        Topology::Links(links)
+    });
+
+    prop_oneof![Just(Topology::Complete), sparse]
+}
+
+/// A network with up to 5 ticks of extra delay, up to 50% loss, a connected topology, and
+/// up to three partitions.
 fn network(agents: usize) -> impl Strategy<Value = Network> {
     (
         any::<u64>(),
         0_u64..=5,
         0_u16..=500,
+        topology(agents),
         vec(partition(agents), 0..=3),
     )
-        .prop_map(|(seed, max_delay, loss_per_mille, partitions)| Network {
-            seed,
-            max_delay,
-            loss_per_mille,
-            partitions,
-        })
+        .prop_map(
+            |(seed, max_delay, loss_per_mille, topology, partitions)| Network {
+                seed,
+                max_delay,
+                loss_per_mille,
+                topology,
+                partitions,
+            },
+        )
 }
 
 /// An instance of up to [`MAX_TEAM`] agents together with a network for them.
 fn scenario() -> impl Strategy<Value = (Instance, Network)> {
-    instance_with(MAX_TEAM).prop_flat_map(|instance| {
+    with_network(instance_with(MAX_TEAM))
+}
+
+/// `instances`, each together with a network for its agents.
+fn with_network(
+    instances: impl Strategy<Value = Instance>,
+) -> impl Strategy<Value = (Instance, Network)> {
+    instances.prop_flat_map(|instance| {
         let agents = instance.agents.len();
 
         (Just(instance), network(agents))
@@ -175,6 +207,22 @@ proptest! {
 
         let best = optimal(&instance.agents, instance.tasks, instance.capacity);
         prop_assert!(assignment.value() <= best.value());
+    }
+
+    /// Larger instances, too big for the exhaustive optimum, settle on stable assignments.
+    #[test]
+    fn larger_instances_settle((instance, network) in with_network(instance_sized(MAX_TEAM, 14))) {
+        let Some(simulation) = run(&instance, network) else {
+            return Err(TestCaseError::fail("did not settle"));
+        };
+        let assignment = simulation.assignment();
+
+        prop_assert!(assignment.is_conflict_free());
+        agrees_with(&simulation, &assignment)?;
+        nobody_can_outbid(&simulation, &instance)?;
+        for (agent, valuation) in instance.agents.iter().enumerate() {
+            gains_replay(valuation, assignment.bundle(AgentId(agent)))?;
+        }
     }
 
     /// Once settled, nothing changes, however long the team keeps talking.
