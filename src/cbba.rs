@@ -23,13 +23,19 @@
 //! - every winning bid is the holder's real marginal gain, given the tasks it added before;
 //! - no agent with room left could outbid the winner of a task it does not hold.
 //!
-//! The settled assignment often is the
-//! [sequential greedy assignment](crate::centralized::sequential_greedy), but not always.
-//! An agent outbid by a bid that is later withdrawn may already have filled the slot with
-//! another task, and keeps it; and equal gains can be resolved in a different order.
+//! The literature states that, with diminishing gains, CBBA settles on the
+//! [sequential greedy assignment](crate::centralized::sequential_greedy) (Choi, Brunet and
+//! How, as restated by Buckman, Choi and How, 2019). With this implementation that often
+//! holds, but not always: an agent outbid by a bid that is later withdrawn may already have
+//! filled the slot with another task, and keeps it; and equal gains can be resolved in a
+//! different order. The tests pin both cases, the first with a step-by-step trace.
 //!
 //! The algorithm is from Choi, Brunet and How, "Consensus-Based Decentralized Auctions for
-//! Robust Task Allocation", IEEE Transactions on Robotics 25(4), 2009. Timestamps here are
+//! Robust Task Allocation", IEEE Transactions on Robotics 25(4), 2009. Its state and release
+//! rule follow the restatement in Section II.B of Johnson, Ponda, Choi and How,
+//! "Asynchronous Decentralized Task Allocation for Dynamic Environments", AIAA
+//! Infotech@Aerospace 2011, and its conflict table was checked entry by entry against the
+//! open-source CBBA-Python implementation (<https://github.com/zehuilu/CBBA-Python>). Timestamps here are
 //! logical clocks: every agent counts the messages it sends, and agents track the latest count
 //! they have seen of each other agent, directly or relayed. No synchronized clocks are needed.
 //!

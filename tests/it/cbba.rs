@@ -249,12 +249,24 @@ fn holders(assignment: &Assignment, tasks: usize) -> Vec<Option<AgentId>> {
         .collect()
 }
 
-/// CBBA can settle away from the sequential greedy assignment even on a perfect network.
+/// This implementation can settle away from the sequential greedy assignment even on a
+/// perfect network.
 ///
-/// Agent 0 first bids 33 on task 1, a bid that assumes it also wins task 0. Agent 1 is
-/// outbid on task 1 and fills the slot with task 2 instead. Agent 0 then loses task 0 and
-/// withdraws to a bid of 10 on task 1, but nobody outbids agent 1 on task 2, so the slot
-/// stays taken, and behind task 2, task 1 is worth less than 10 to agent 1.
+/// The gains come from the coverage valuations below, as `task (gain)` in bundle order:
+///
+/// 1. Round 1: agent 0 builds 0 (40), 1 (33); agent 1 builds 0 (61), 1 (21), 2 (9).
+/// 2. Consensus: agent 0 loses task 0 to 61 and releases 0 and 1. Agent 1 sees agent 0's
+///    33 on task 1, which beats its 21, and releases 1 and 2.
+/// 3. Round 2: agent 1 cannot win task 1 (33 > 21) and adds 2 (20), its gain on task 2
+///    behind task 0 alone. Agent 0 builds 4 (38), 2 (11), 1 (10).
+/// 4. Consensus: agent 0 loses task 2 to 20 and releases 2 and 1. Round 3: agent 0 builds
+///    4 (38), 1 (10).
+/// 5. Agent 1 would now bid on task 1, but behind tasks 0 and 2 only item 2 (weight 10) is
+///    new to it: a gain of 10, which ties agent 0's 10 and loses to the smaller agent. Its
+///    slot stays filled with task 2.
+///
+/// Greedy instead gives agent 1 task 1 at 21 right after task 0 (items 2 and 7, weights 10
+/// and 11), and agent 0 task 2: a total of 131 rather than 129.
 #[test]
 fn blocked_slot_differs_from_greedy() {
     let instance = Instance {
