@@ -1,6 +1,7 @@
 //! Three robots in a warehouse split the pick-ups among themselves with CBBA, over a lossy
 //! network. Travel times come from A* on the floor plan (heuristic-search), and every pick-up
-//! loses value the later it is done.
+//! has its own value and deadline. Exact shortest paths and fixed rewards keep the gains
+//! diminishing, which CBBA needs to converge; the example checks that first.
 //!
 //! Run with `cargo run --example warehouse_grid`.
 
@@ -10,7 +11,7 @@ use heuristic_search::{Limits, Successors, a_star, heuristic_fn};
 use task_allocation::cbba::Agent;
 use task_allocation::route::{Route, Timed, rewards};
 use task_allocation::sim::{Network, Simulation};
-use task_allocation::{AgentId, BestInsertion, TaskId};
+use task_allocation::{AgentId, BestInsertion, TaskId, check_diminishing};
 
 /// The floor plan: `#` is a shelf, `A` to `C` are the robots' docks, `0` to `7` pick-ups.
 const FLOOR: [&str; 9] = [
@@ -23,6 +24,18 @@ const FLOOR: [&str; 9] = [
     ".#3..........4.#.",
     ".#####.###.#####.",
     "5.....C...6....7.",
+];
+
+/// The value of each pick-up, and the second by which it must be done.
+const ORDERS: [(u64, u64); 8] = [
+    (40, 30),
+    (70, 40),
+    (50, 25),
+    (90, 45),
+    (60, 35),
+    (30, 20),
+    (80, 30),
+    (55, 50),
 ];
 
 /// A cell of the floor plan, as column and row.
@@ -137,27 +150,28 @@ impl Route for Robot {
         3
     }
 
-    /// Each pick-up is worth 100, falling to nothing at one minute.
-    fn reward(&self, _task: TaskId, finish: u64) -> Option<u64> {
-        rewards::linear_decay(100, finish, 0, 60)
+    fn reward(&self, task: TaskId, finish: u64) -> Option<u64> {
+        let (value, deadline) = ORDERS[task.index()];
+
+        rewards::deadline(value, finish, deadline)
     }
 }
 
 fn main() {
     let docks = b"ABC".map(Floor::find);
-    let tasks = pickups().len();
-    let agents = docks
+    let tasks: Vec<TaskId> = (0..pickups().len()).map(TaskId).collect();
+    let robots: Vec<_> = docks
         .iter()
+        .map(|&dock| BestInsertion(Timed(Robot::at(dock))))
+        .collect();
+    for robot in &robots {
+        check_diminishing(robot, &tasks, 3).expect("gains diminish");
+    }
+
+    let agents = robots
+        .into_iter()
         .enumerate()
-        .map(|(id, &dock)| {
-            Agent::new(
-                AgentId(id),
-                docks.len(),
-                tasks,
-                3,
-                BestInsertion(Timed(Robot::at(dock))),
-            )
-        })
+        .map(|(id, robot)| Agent::new(AgentId(id), docks.len(), tasks.len(), 3, robot))
         .collect();
 
     // Wi-Fi in a warehouse: a quarter of all messages get lost, the rest arrive late.

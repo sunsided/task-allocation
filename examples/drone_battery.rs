@@ -10,7 +10,7 @@ use resource_timeline::{ActivityId, Bounds, Impact, Timeline};
 use task_allocation::cbba::Agent;
 use task_allocation::route::{Route, Timed, Visit, rewards};
 use task_allocation::sim::{Network, Simulation};
-use task_allocation::{AgentId, BestInsertion, PathScore, TaskId};
+use task_allocation::{AgentId, BestInsertion, PathScore, TaskId, check_diminishing};
 
 /// Inspection points on a 100 × 100 meter field: position and photo energy.
 const POINTS: [((u64, u64), i64); 9] = [
@@ -54,9 +54,9 @@ impl Route for Flight {
         PHOTO_SECONDS
     }
 
-    /// Photos lose value as the light changes: worth 100, halving every two minutes.
+    /// Every photo is worth 100 if taken before the light goes, five minutes in.
     fn reward(&self, _task: TaskId, finish: u64) -> Option<u64> {
-        Some(rewards::halving(100, finish, 120))
+        rewards::deadline(100, finish, 300)
     }
 }
 
@@ -162,22 +162,27 @@ fn check_link(
 
 fn main() -> Result<(), resource_timeline::Error> {
     let bases = [((0, 0), 300), ((100, 100), 300), ((0, 100), 150)];
-    let agents = bases
+    let drones: Vec<_> = bases
         .iter()
-        .enumerate()
-        .map(|(id, &(base, charge))| {
-            let drone = Drone {
+        .map(|&(base, charge)| {
+            BestInsertion(Drone {
                 flight: Timed(Flight { base }),
                 charge,
-            };
-            Agent::new(
-                AgentId(id),
-                bases.len(),
-                POINTS.len(),
-                4,
-                BestInsertion(drone),
-            )
+            })
         })
+        .collect();
+
+    // Fixed rewards, Manhattan travel and a battery that only ever drains keep the gains
+    // diminishing, which CBBA needs to converge.
+    let tasks: Vec<TaskId> = (0..POINTS.len()).map(TaskId).collect();
+    for drone in &drones {
+        check_diminishing(drone, &tasks, 4).expect("gains diminish");
+    }
+
+    let agents = drones
+        .into_iter()
+        .enumerate()
+        .map(|(id, drone)| Agent::new(AgentId(id), bases.len(), POINTS.len(), 4, drone))
         .collect();
 
     let network = Network {

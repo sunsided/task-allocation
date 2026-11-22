@@ -13,7 +13,7 @@
 use task_allocation::cbba::Agent;
 use task_allocation::route::{Route, Timed, Visit, rewards};
 use task_allocation::sim::{Network, Simulation};
-use task_allocation::{AgentId, BestInsertion, TaskId};
+use task_allocation::{AgentId, BestInsertion, TaskId, check_diminishing};
 use temporal_control::{Budget, Stn, Ticks, TimePoint, Verdict};
 
 /// A survey site: where on the line, how long it takes, its deadline, and its reward.
@@ -179,6 +179,13 @@ struct Plans {
 
 /// Allocates the sites among `rovers` with CBBA over a slightly delayed network.
 fn allocate(rovers: &[Rover]) -> Simulation<BestInsertion<Timed<Rover>>> {
+    // Fixed rewards with deadlines on a line keep the gains diminishing, which CBBA needs
+    // to converge.
+    let tasks: Vec<TaskId> = (0..SITES.len()).map(TaskId).collect();
+    for rover in rovers {
+        check_diminishing(&BestInsertion(Timed(*rover)), &tasks, 3).expect("gains diminish");
+    }
+
     let agents = rovers
         .iter()
         .enumerate()

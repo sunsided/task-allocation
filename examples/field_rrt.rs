@@ -1,6 +1,7 @@
 //! Two field robots split six sample sites around a pond. Travel costs come from RRT*
-//! (sampling-planning), which plans around the pond in continuous space. The example
-//! compares CBBA with the auction baselines and with the exhaustive optimum.
+//! (sampling-planning), which plans around the pond in continuous space, made consistent
+//! with a shortest-path pass. The example compares CBBA with the auction baselines and with
+//! the exhaustive optimum.
 //!
 //! Run with `cargo run --example field_rrt`.
 
@@ -16,7 +17,7 @@ use task_allocation::cbba::Agent;
 use task_allocation::centralized::{optimal, sequential_greedy};
 use task_allocation::route::{Route, Timed, rewards};
 use task_allocation::sim::{Network, Simulation};
-use task_allocation::{AgentId, Assignment, BestInsertion, TaskId};
+use task_allocation::{AgentId, Assignment, BestInsertion, TaskId, check_diminishing};
 
 /// The field's size, in meters.
 const FIELD: f64 = 20.0;
@@ -87,7 +88,7 @@ fn driving_distance(from: [f64; 2], to: [f64; 2], seed: u64) -> Option<u64> {
 fn distance_table(start: [f64; 2]) -> Vec<Vec<Option<u64>>> {
     let places: Vec<[f64; 2]> = std::iter::once(start).chain(SITES).collect();
 
-    places
+    let planned = places
         .iter()
         .enumerate()
         .map(|(row, &from)| {
@@ -103,7 +104,31 @@ fn distance_table(start: [f64; 2]) -> Vec<Vec<Option<u64>>> {
                 })
                 .collect()
         })
-        .collect()
+        .collect();
+
+    shortest_through(planned)
+}
+
+/// Shortens every distance in `table` to the shortest chain of planned paths
+/// (Floyd-Warshall). RRT* paths are only near-optimal, so a detour through a third place
+/// can beat a direct plan. Taking the shortest chain restores the triangle inequality,
+/// which keeps feasibility monotone and the gains diminishing.
+fn shortest_through(mut table: Vec<Vec<Option<u64>>>) -> Vec<Vec<Option<u64>>> {
+    let places = table.len();
+    for via in 0..places {
+        for from in 0..places {
+            for to in 0..places {
+                let chained = table[from][via].zip(table[via][to]).map(|(a, b)| a + b);
+                if chained
+                    .is_some_and(|chained| table[from][to].is_none_or(|direct| chained < direct))
+                {
+                    table[from][to] = chained;
+                }
+            }
+        }
+    }
+
+    table
 }
 
 /// A robot at 1 m/s, with precomputed driving distances.
@@ -133,9 +158,9 @@ impl Route for Robot {
         10
     }
 
-    /// Samples are worth 100, falling to nothing after two minutes in the sun.
+    /// Samples are worth 100 if taken within two minutes, before the sun spoils them.
     fn reward(&self, _task: TaskId, finish: u64) -> Option<u64> {
-        rewards::linear_decay(100, finish, 0, 120)
+        rewards::deadline(100, finish, 120)
     }
 }
 
@@ -189,6 +214,11 @@ fn report(name: &str, assignment: &Assignment) {
 fn main() {
     let valuations = robots();
     let tasks = SITES.len();
+    let ids: Vec<TaskId> = (0..tasks).map(TaskId).collect();
+    for valuation in &valuations {
+        check_diminishing(valuation, &ids, 4).expect("gains diminish");
+    }
+
     let in_order = (0..tasks).map(TaskId);
 
     let best = optimal(&valuations, tasks, 4);
