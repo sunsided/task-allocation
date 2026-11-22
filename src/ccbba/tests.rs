@@ -185,6 +185,9 @@ fn accessors_report_the_agents_state() {
     assert_eq!(helper.valuation().0, [4, 9]);
     assert_eq!(helper.constraints(), &constraints);
     assert_eq!(helper.winning_bid(TaskId(0)), 4);
-    assert_eq!(helper.inner.valuation().marginal_score(&[], &TaskId(0)), Some(4));
+    assert_eq!(
+        helper.inner.valuation().marginal_score(&[], &TaskId(0)),
+        Some(4)
+    );
     assert!(!helper.inner.give_up(TaskId(1)));
 }

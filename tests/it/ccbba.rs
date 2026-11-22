@@ -274,5 +274,68 @@ fn coupled_tasks_can_cycle() {
         )
         .unwrap();
 
-    assert!(run(&instance, &constraints, Network::default()).is_none());
+    let agents = instance
+        .agents
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(id, valuation)| {
+            Agent::new(
+                AgentId(id),
+                2,
+                3,
+                3,
+                valuation,
+                constraints.clone(),
+                OPTIMISM,
+            )
+        })
+        .collect();
+    let mut simulation = Simulation::new(agents, Network::default());
+    let mut history = Vec::new();
+    for _ in 0..300 {
+        simulation.step();
+        assert_unsettled(&simulation);
+        history.push(simulation.assignment());
+    }
+
+    let period = 5;
+    let tail = &history[history.len() - 4 * period..];
+    assert!(
+        tail.iter()
+            .zip(&tail[period..])
+            .all(|(earlier, later)| earlier == later)
+    );
+    assert!(tail[..period].iter().any(|state| state != &tail[0]));
+}
+
+/// Panics if `simulation` claims to have settled.
+fn assert_unsettled(simulation: &Simulation<Agent<support::Agent>>) {
+    assert!(
+        !simulation.is_settled(),
+        "settled at tick {}",
+        simulation.tick()
+    );
+}
+
+/// Most generated runs settle: at least 97% of 2,000 drawn with a fixed seed, so that the
+/// property above, which skips runs that do not, cannot pass vacuously.
+#[test]
+fn most_runs_settle() {
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+
+    let mut runner = TestRunner::deterministic();
+    let scenarios = scenario();
+    let settled = (0..2_000)
+        .filter(|_| {
+            let (instance, constraints, network) = scenarios
+                .new_tree(&mut runner)
+                .expect("generates")
+                .current();
+            run(&instance, &constraints, network).is_some()
+        })
+        .count();
+
+    assert!(settled >= 1_940, "only {settled} of 2000 runs settled");
 }

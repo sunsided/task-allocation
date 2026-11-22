@@ -62,6 +62,7 @@ struct Activity {
 
 /// Why an activity was rejected.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ConstraintError {
     /// A task identifier is not below the task count.
     UnknownTask(TaskId),
