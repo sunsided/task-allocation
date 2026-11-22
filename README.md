@@ -53,6 +53,7 @@ impl Valuation<Task> for Rover {
 
 let survey = Task { duration: 30, deadline: 60, reward: 5 };
 let sample = Task { duration: 20, deadline: 40, reward: 8 };
+
 assert_eq!(Rover.marginal_score(&[], &sample), Some(8));
 
 // After the survey, the sample would be done at minute 50, past its deadline.
