@@ -12,6 +12,8 @@
 //! - [`Bundle`]: the tasks one agent holds, in the order it took them on and in execution
 //!   order, built greedily from marginal gains.
 //! - [`Assignment`]: one bundle per agent, the result of every allocation algorithm.
+//! - [`route`]: a ready-made path score for agents that travel between task sites, with
+//!   service windows and rewards that depend on the finish time.
 //! - [`cbba`]: the consensus-based bundle algorithm. Each [`cbba::Agent`] builds its bundle,
 //!   broadcasts its view of every task's winner, and merges what it hears, until the team
 //!   agrees on a conflict-free assignment.
@@ -69,6 +71,7 @@ mod bundle;
 pub mod cbba;
 pub mod centralized;
 mod id;
+pub mod route;
 pub mod sim;
 mod valuation;
 

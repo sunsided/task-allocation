@@ -16,6 +16,7 @@ Decentralized multi-agent task allocation in Rust: agents decide among themselve
 - Sequential and combinatorial auctions as baselines
 - Task scores from user-supplied costs, such as travel time, deadlines or resource use
 - A deterministic simulated network (seeded delays, losses and partitions) to test teams on
+- Timed routes: a ready-made path score from travel times, service windows and rewards that decay with the finish time
 - Greedy bundle construction from marginal gains, with a check for diminishing gains
 - Centralized references: the sequential greedy assignment, and the exhaustive optimum for small instances
 
