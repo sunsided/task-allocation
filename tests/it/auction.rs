@@ -7,7 +7,7 @@ use task_allocation::auction::{
     BundleBid, bundle_bids, combinatorial, sequential, winner_determination,
 };
 use task_allocation::centralized::optimal;
-use task_allocation::{AgentId, Assignment, Bundle, Insertion, TaskId};
+use task_allocation::{AgentId, Assignment, Bundle, Insertion, TaskId, Valuation};
 
 use crate::support::{Instance, instance};
 
@@ -127,22 +127,48 @@ proptest! {
     }
 }
 
-/// Bids from agents outside the team are ignored, and unknown tasks are skipped.
+/// Bids from agents outside the team are ignored, and so are sparse task identifiers.
 #[test]
-fn out_of_range_inputs_are_ignored() {
+fn out_of_range_bids_are_ignored() {
     let assignment = winner_determination(&[bid(5, 1, 9), bid(0, 2, 3)], 2);
     assert_eq!(assignment.value(), 3);
 
-    let agents = instance_of_one();
-    let auctioned = sequential(&agents, 1, 1, [TaskId(7), TaskId(0), TaskId(0)]);
-    assert_eq!(auctioned.holder(TaskId(0)), Some(AgentId(0)));
+    let mut far = Bundle::new();
+    far.insert(
+        TaskId(usize::MAX),
+        Insertion {
+            position: 0,
+            gain: 4,
+        },
+    );
+    let sparse = BundleBid {
+        agent: AgentId(1),
+        bundle: far,
+    };
+    assert_eq!(winner_determination(&[sparse], 2).value(), 4);
 }
 
-/// One coverage agent that values its single task.
-fn instance_of_one() -> Vec<crate::support::Agent> {
-    vec![crate::support::Agent::Coverage(crate::support::Coverage {
-        covers: vec![1],
-        weights: vec![4],
-        allowed: 1,
-    })]
+/// Wants task 0 only after task 1, and takes any other task, even unknown ones.
+struct AfterOne;
+
+impl Valuation<TaskId> for AfterOne {
+    fn marginal_score(&self, path: &[TaskId], task: &TaskId) -> Option<u64> {
+        (task.index() != 0 || path.contains(&TaskId(1))).then_some(1)
+    }
+}
+
+/// Unknown tasks are skipped, and a task listed twice is auctioned only once, even when
+/// nobody bid on it the first time.
+#[test]
+fn each_known_task_is_auctioned_once() {
+    let auctioned = sequential(
+        &[AfterOne],
+        2,
+        3,
+        [TaskId(7), TaskId(0), TaskId(1), TaskId(0)],
+    );
+
+    assert_eq!(auctioned.holder(TaskId(0)), None);
+    assert_eq!(auctioned.holder(TaskId(1)), Some(AgentId(0)));
+    assert_eq!(auctioned.bundle(AgentId(0)).len(), 1);
 }

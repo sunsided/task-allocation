@@ -1,5 +1,7 @@
 //! Sequential single-item auctions.
 
+use alloc::vec;
+
 use crate::assignment::Assignment;
 use crate::id::{AgentId, TaskId};
 use crate::valuation::{Insertion, Valuation};
@@ -10,7 +12,8 @@ use crate::valuation::{Insertion, Valuation};
 /// For each task, every agent with room left bids its marginal gain on its current path,
 /// and the highest positive bid wins; ties go to the smaller agent. The winner inserts the
 /// task at its best position. A task nobody bids on stays unassigned. Tasks listed twice
-/// are auctioned once; identifiers of `tasks` or more are ignored.
+/// are auctioned only the first time, whether or not anyone bid; identifiers of `tasks` or
+/// more are ignored.
 ///
 /// Each task asks every agent once: `order.len() × agents` calls to
 /// [`Valuation::best_insertion`].
@@ -47,10 +50,14 @@ where
     I: IntoIterator<Item = TaskId>,
 {
     let mut assignment = Assignment::empty(agents.len());
+    let mut auctioned = vec![false; tasks];
 
     for task in order {
-        let unauctioned = task.index() < tasks && assignment.holder(task).is_none();
-        if !unauctioned {
+        let Some(done) = auctioned.get_mut(task.index()) else {
+            continue;
+        };
+
+        if core::mem::replace(done, true) {
             continue;
         }
 

@@ -1,6 +1,6 @@
 //! Combinatorial auctions: bids on whole bundles, and exact winner determination.
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -246,8 +246,8 @@ struct Search<'a> {
     /// remaining agents can add.
     bound_from: Vec<u64>,
 
-    /// Which tasks the current selection already uses.
-    taken: Vec<bool>,
+    /// The tasks the current selection already uses.
+    taken: BTreeSet<TaskId>,
 
     /// The bid index chosen for each agent so far; `None` for no bid.
     choice: Vec<Option<usize>>,
@@ -273,18 +273,10 @@ impl<'a> Search<'a> {
             bound_from[agent] = bound_from[agent + 1].saturating_add(best);
         }
 
-        let tasks = by_agent
-            .iter()
-            .flatten()
-            .flat_map(|bid| bid.bundle.tasks())
-            .map(|task| task.index() + 1)
-            .max()
-            .unwrap_or(0);
-
         Self {
             by_agent,
             bound_from,
-            taken: vec![false; tasks],
+            taken: BTreeSet::new(),
             choice: vec![None; agents],
             best_choice: vec![None; agents],
             best_value: None,
@@ -309,7 +301,7 @@ impl<'a> Search<'a> {
 
         for index in 0..self.by_agent[agent].len() {
             let bid = self.by_agent[agent][index];
-            if bid.bundle.tasks().any(|task| self.taken[task.index()]) {
+            if bid.bundle.tasks().any(|task| self.taken.contains(task)) {
                 continue;
             }
 
@@ -325,8 +317,12 @@ impl<'a> Search<'a> {
 
     /// Marks the tasks of `bid` as taken or free.
     fn mark(&mut self, bid: &BundleBid, taken: bool) {
-        for task in bid.bundle.tasks() {
-            self.taken[task.index()] = taken;
+        for &task in bid.bundle.tasks() {
+            if taken {
+                self.taken.insert(task);
+            } else {
+                self.taken.remove(&task);
+            }
         }
     }
 }
