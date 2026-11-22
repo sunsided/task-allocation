@@ -120,3 +120,17 @@ fn ties_go_to_the_smaller_agent() {
 fn identifier_must_fit_the_team() {
     let _ = agent(2, 2, 1, &[1]);
 }
+
+/// A message reports the sender's view of every task.
+#[test]
+fn message_exposes_the_senders_view() {
+    let mut sender = agent(1, 2, 1, &[5, 0]);
+    sender.build_bundle();
+    let message = sender.message();
+
+    assert_eq!(message.sender(), AgentId(1));
+    assert_eq!(message.tasks(), 2);
+    assert_eq!(message.winner(TaskId(0)), Some(AgentId(1)));
+    assert_eq!(message.winning_bid(TaskId(0)), 5);
+    assert_eq!(message.winner(TaskId(1)), None);
+}
