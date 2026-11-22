@@ -198,8 +198,23 @@ impl<V: Valuation<TaskId>> Agent<V> {
     /// number of tasks added after the release.
     ///
     /// Each added task's bid is its marginal gain, and this agent becomes its winner in its
-    /// own tables.
+    /// own tables. With [`Replan::Keep`], the bundle grows in place, without allocating once
+    /// the bundle has reached its capacity before.
     pub fn build_bundle(&mut self) -> usize {
+        if self.replan == Replan::Keep {
+            let Self {
+                id,
+                valuation,
+                capacity,
+                bundle,
+                claims,
+                tasks,
+                ..
+            } = self;
+
+            return extend_and_claim(*id, valuation, tasks, *capacity, bundle, claims);
+        }
+
         let (bundle, claims, added) = self.rebuilt();
         self.bundle = bundle;
         self.claims = claims;
@@ -239,20 +254,15 @@ impl<V: Valuation<TaskId>> Agent<V> {
         let mut claims = self.claims.clone();
         self.release_for_replan(&mut bundle, &mut claims);
 
-        let id = self.id;
-        let before = bundle.len();
-        bundle.extend_greedily(&self.valuation, &self.tasks, self.capacity, |task, gain| {
-            Self::wins(id, &claims, *task, gain)
-        });
+        let added = extend_and_claim(
+            self.id,
+            &self.valuation,
+            &self.tasks,
+            self.capacity,
+            &mut bundle,
+            &mut claims,
+        );
 
-        for (task, gain) in bundle.entries().skip(before) {
-            claims[task.index()] = Claim {
-                winner: Some(id),
-                bid: gain,
-            };
-        }
-
-        let added = bundle.len() - before;
         (bundle, claims, added)
     }
 
@@ -413,6 +423,32 @@ impl<V: Valuation<TaskId>> Agent<V> {
 
         true
     }
+}
+
+/// Extends `bundle` greedily with the tasks agent `id` can win against `claims`, up to
+/// `capacity`, and records the agent as the winner of each added task, at its gain; returns
+/// the number of tasks added.
+fn extend_and_claim<V: Valuation<TaskId>>(
+    id: AgentId,
+    valuation: &V,
+    tasks: &[TaskId],
+    capacity: usize,
+    bundle: &mut Bundle<TaskId>,
+    claims: &mut [Claim],
+) -> usize {
+    let before = bundle.len();
+    bundle.extend_greedily(valuation, tasks, capacity, |task, gain| {
+        Agent::<V>::wins(id, claims, *task, gain)
+    });
+
+    for (task, gain) in bundle.entries().skip(before) {
+        claims[task.index()] = Claim {
+            winner: Some(id),
+            bid: gain,
+        };
+    }
+
+    bundle.len() - before
 }
 
 impl<V> Agent<V> {

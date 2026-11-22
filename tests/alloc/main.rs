@@ -7,6 +7,7 @@
 use std::alloc::System;
 
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
+use task_allocation::AgentId;
 use task_allocation::cbba::Agent;
 use task_allocation::sim::Simulation;
 
@@ -14,17 +15,17 @@ use task_allocation::sim::Simulation;
 #[path = "../../benches/support/colony.rs"]
 mod colony;
 
-use colony::{JOBS, Plan, WARM_UP_ROUNDS, WORKERS, colony, negotiation};
+use colony::{JOBS, Plan, QUEUE, WARM_UP_ROUNDS, WORKERS, colony, negotiation};
 
 /// Counts every allocation, so the test can measure a region.
 #[global_allocator]
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
 /// The most allocations a round mid negotiation may make.
-const BUSY_BUDGET: usize = 460;
+const BUSY_BUDGET: usize = 290;
 
 /// The most allocations a round of a settled team may make.
-const SETTLED_BUDGET: usize = 390;
+const SETTLED_BUDGET: usize = 225;
 
 /// The allocations and bytes of one round of `simulation`.
 fn allocations_of_one_round(simulation: &mut Simulation<Agent<Plan>>) -> (usize, usize) {
@@ -59,4 +60,52 @@ fn rounds_stay_within_their_allocation_budget() {
         settled <= SETTLED_BUDGET,
         "{settled} allocations once settled"
     );
+
+    agent_phases_do_not_allocate(&colony());
+}
+
+/// Drives two colony agents directly, as a game would: after a warm-up, a bundle phase and
+/// a consensus phase allocate nothing, and a message allocates its two tables.
+fn agent_phases_do_not_allocate(plans: &[Plan]) {
+    let mut agents: Vec<Agent<Plan>> = plans
+        .iter()
+        .take(2)
+        .cloned()
+        .enumerate()
+        .map(|(id, plan)| Agent::new(AgentId(id), 2, JOBS, QUEUE, plan))
+        .collect();
+    for _ in 0..WARM_UP_ROUNDS {
+        exchange(&mut agents);
+    }
+
+    let message = agents[1].message();
+    let region = Region::new(GLOBAL);
+    agents[0].build_bundle();
+    let building = region.change().allocations;
+    let region = Region::new(GLOBAL);
+    agents[0].receive(&message);
+    let receiving = region.change().allocations;
+    let phases = building + receiving;
+
+    let region = Region::new(GLOBAL);
+    let broadcast = agents[0].message();
+    let messaging = region.change().allocations;
+    drop(broadcast);
+
+    assert_eq!(phases, 0, "bundle and consensus phases allocated");
+    assert_eq!(
+        messaging, 2,
+        "a message allocates its claim and clock tables"
+    );
+}
+
+/// One round between `agents`: both build their bundles and read each other's message.
+fn exchange(agents: &mut [Agent<Plan>]) {
+    for agent in agents.iter_mut() {
+        agent.build_bundle();
+    }
+
+    let messages: Vec<_> = agents.iter_mut().map(Agent::message).collect();
+    agents[0].receive(&messages[1]);
+    agents[1].receive(&messages[0]);
 }
