@@ -50,6 +50,11 @@ tasks:
         if: '[ "{{.NEXTEST}}" = "no" ]'
       - task: test:doc
 
+  test:exhaustive:
+    desc: Run the ignored experiments, deeper schedule exploration included (minutes)
+    cmds:
+      - cargo test --release --test it -- --ignored --nocapture {{.CLI_ARGS}}
+
   test:doc:
     desc: Run doctests (nextest does not run them; skipped for binary-only crates)
     aliases: [test:docs]
