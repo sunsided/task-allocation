@@ -18,7 +18,7 @@ use crate::support::{self, Instance, instance_sized};
 const CLOSE_LIMIT: u32 = 40;
 
 /// `count` instances with exactly `agents` agents and `tasks` tasks, the same every run.
-fn instances(agents: usize, tasks: usize, count: usize) -> Vec<Instance> {
+pub(super) fn instances(agents: usize, tasks: usize, count: usize) -> Vec<Instance> {
     let strategy = instance_sized(agents, tasks).prop_filter("exact size", move |instance| {
         instance.agents.len() == agents && instance.tasks == tasks
     });
