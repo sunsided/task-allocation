@@ -43,7 +43,7 @@ fn release_drops_later_tasks() {
     assert_eq!(released, [3, 2, 1]);
     assert_eq!(bundle.path(), [4]);
     assert_eq!(bundle.entries().collect::<Vec<_>>(), [(&4, 4)]);
-    assert_eq!(bundle.release_from(5), []);
+    assert_eq!(bundle.release_from(5), Vec::<u64>::new());
 }
 
 /// Rejected tasks are skipped, and the next best one is taken.

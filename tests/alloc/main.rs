@@ -22,7 +22,7 @@ use colony::{JOBS, Plan, QUEUE, WARM_UP_ROUNDS, WORKERS, colony, negotiation};
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
 /// The most allocations a round mid negotiation may make.
-const BUSY_BUDGET: usize = 230;
+const BUSY_BUDGET: usize = 165;
 
 /// The most allocations a round of a settled team may make.
 const SETTLED_BUDGET: usize = 165;
@@ -93,10 +93,33 @@ fn agent_phases_do_not_allocate(plans: &[Plan]) {
     drop(broadcast);
 
     assert_eq!(phases, 0, "bundle and consensus phases allocated");
+
+    let outbid = releasing_an_outbid_bundle(plans);
+    assert_eq!(outbid, 0, "releasing an outbid bundle allocated");
     assert_eq!(
         messaging, 2,
         "a message allocates its claim and clock tables"
     );
+}
+
+/// The allocations of receiving a message that outbids every task of a full bundle.
+///
+/// Two agents with the same valuation bid the same, so the smaller one, agent 0, outbids
+/// agent 1 on every task, and agent 1 releases its whole bundle.
+fn releasing_an_outbid_bundle(plans: &[Plan]) -> usize {
+    let plan = plans[0].clone();
+    let mut winner = Agent::new(AgentId(0), 2, JOBS, QUEUE, plan.clone());
+    let mut loser = Agent::new(AgentId(1), 2, JOBS, QUEUE, plan);
+    winner.build_bundle();
+    loser.build_bundle();
+    let message = winner.message();
+
+    let region = Region::new(GLOBAL);
+    loser.receive(&message);
+    let allocations = region.change().allocations;
+    assert_eq!(loser.bundle().len(), 0, "the loser keeps nothing");
+
+    allocations
 }
 
 /// One round between `agents`: both build their bundles and read each other's message.
