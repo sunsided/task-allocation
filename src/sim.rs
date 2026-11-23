@@ -162,14 +162,17 @@ impl<V: Valuation<TaskId>> Participant for cbba::Agent<V> {
         self.bundle()
     }
 
-    /// Runs the bundle phase and broadcasts the agent's full state, every round.
+    /// Runs the bundle phase and broadcasts the agent's full state when its
+    /// [`Cadence`](cbba::Cadence) calls for it; by default, every round.
     fn act(&mut self, _now: u64, outbox: &mut Vec<cbba::Message>) {
         if self.has_left() {
             return;
         }
 
         self.build_bundle();
-        outbox.push(self.message());
+        if self.broadcast_due() {
+            outbox.push(self.message());
+        }
     }
 
     /// Runs the consensus phase for `message`; CBBA answers in the next round, not now.
