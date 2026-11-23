@@ -56,6 +56,12 @@
 //!
 //! [`sim`](crate::sim) runs a team over a simulated network with delays, losses and
 //! partitions.
+//!
+//! In a frame-driven loop, such as a game's, [`Agent::with_bundle_budget`] caps the tasks one
+//! bundle phase adds, so a phase's cost fits a frame and a bundle fills over several rounds.
+//! Without replanning, the bundle and consensus phases do not allocate once the bundle has
+//! reached its capacity before, including when the agent is outbid; only building a
+//! [`Message`] does.
 
 mod message;
 pub(crate) mod table;
@@ -130,6 +136,9 @@ pub struct Agent<V> {
 
     /// How much of its bundle this agent releases before each bundle phase.
     replan: Replan,
+
+    /// The most tasks one bundle phase adds; `None` for no limit.
+    budget: Option<usize>,
 }
 
 /// How much of its bundle an agent releases before each bundle phase, to reconsider it.
@@ -181,15 +190,54 @@ impl<V: Valuation<TaskId>> Agent<V> {
             seen: vec![0; agents],
             tasks: (0..tasks).map(TaskId).collect(),
             replan: Replan::Keep,
+            budget: None,
         }
     }
 
     /// This agent, releasing part of its bundle before every bundle phase as `replan` says.
     ///
     /// The default, [`Replan::Keep`], is CBBA as published in 2009.
+    ///
+    /// # Panics
+    ///
+    /// Panics when a [bundle budget](Agent::with_bundle_budget) below the capacity is set and
+    /// `replan` releases as much per phase as the budget re-adds, or more: [`Replan::Full`],
+    /// or [`Replan::Last`] of the budget or more.
     #[must_use]
     pub const fn with_replan(mut self, replan: Replan) -> Self {
+        assert!(
+            budget_fits(replan, self.budget, self.capacity),
+            "a bundle budget below the capacity cannot re-add what this replan releases"
+        );
         self.replan = replan;
+        self
+    }
+
+    /// This agent, adding at most `additions` tasks per bundle phase, so that the phase's
+    /// work fits a frame: each added task costs one pass over every task the agent can still
+    /// win. A bundle then fills over several rounds, and the team keeps negotiating meanwhile.
+    ///
+    /// The limit counts tasks added after the release. A budget below the capacity
+    /// therefore only works with [`Replan::Keep`], or with [`Replan::Last`] of fewer than
+    /// `additions`: a replan that releases as many or more would stop the bundle from growing
+    /// for good, while the team counts as settled.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `additions` is zero, since the agent could never bid, and when it is below
+    /// the capacity while the agent replans as much as it allows or more ([`Replan::Full`],
+    /// or [`Replan::Last`] of `additions` or more).
+    #[must_use]
+    pub fn with_bundle_budget(mut self, additions: usize) -> Self {
+        assert!(
+            additions > 0,
+            "a bundle phase must be allowed to add a task"
+        );
+        assert!(
+            budget_fits(self.replan, Some(additions), self.capacity),
+            "a bundle budget below the capacity cannot re-add what this replan releases"
+        );
+        self.budget = Some(additions);
         self
     }
 
@@ -202,17 +250,17 @@ impl<V: Valuation<TaskId>> Agent<V> {
     /// the bundle has reached its capacity before.
     pub fn build_bundle(&mut self) -> usize {
         if self.replan == Replan::Keep {
+            let limit = self.limit(self.bundle.len());
             let Self {
                 id,
                 valuation,
-                capacity,
                 bundle,
                 claims,
                 tasks,
                 ..
             } = self;
 
-            return extend_and_claim(*id, valuation, tasks, *capacity, bundle, claims);
+            return extend_and_claim(*id, valuation, tasks, limit, bundle, claims);
         }
 
         let (bundle, claims, added) = self.rebuilt();
@@ -258,12 +306,20 @@ impl<V: Valuation<TaskId>> Agent<V> {
             self.id,
             &self.valuation,
             &self.tasks,
-            self.capacity,
+            self.limit(bundle.len()),
             &mut bundle,
             &mut claims,
         );
 
         (bundle, claims, added)
+    }
+
+    /// The bundle size this bundle phase may reach, starting from `held` tasks: the
+    /// capacity, or fewer when the budget allows fewer additions.
+    fn limit(&self, held: usize) -> usize {
+        self.budget.map_or(self.capacity, |additions| {
+            self.capacity.min(held.saturating_add(additions))
+        })
     }
 
     /// Releases the tasks [`Replan`] says from `bundle`, forgetting this agent's own bids on
@@ -392,14 +448,24 @@ impl<V: Valuation<TaskId>> Agent<V> {
             return false;
         };
 
-        for released in self.bundle.release_from(index) {
-            let claim = &mut self.claims[released.index()];
-            if claim.winner == Some(self.id) {
-                *claim = Claim::NONE;
-            }
-        }
+        self.release_own(index);
 
         true
+    }
+
+    /// Releases every task added at bundle index `index` or later, forgetting this agent's
+    /// own bids on them, without allocating.
+    fn release_own(&mut self, index: usize) {
+        let Self {
+            id, bundle, claims, ..
+        } = self;
+
+        bundle.release_from_with(index, |task| {
+            let claim = &mut claims[task.index()];
+            if claim.winner == Some(*id) {
+                *claim = Claim::NONE;
+            }
+        });
     }
 
     /// Drops the first task in the bundle this agent no longer wins, and everything added
@@ -414,15 +480,26 @@ impl<V: Valuation<TaskId>> Agent<V> {
             return false;
         };
 
-        for task in self.bundle.release_from(lost).into_iter().skip(1) {
-            let claim = &mut self.claims[task.index()];
-            if claim.winner == Some(self.id) {
-                *claim = Claim::NONE;
-            }
-        }
+        // The lost task already names another winner, so only the later ones are forgotten.
+        self.release_own(lost);
 
         true
     }
+}
+
+/// Whether a bundle `budget` lets every bundle phase add more than `replan` releases, so
+/// that bundles can still reach `capacity`.
+const fn budget_fits(replan: Replan, budget: Option<usize>, capacity: usize) -> bool {
+    let Some(budget) = budget else {
+        return true;
+    };
+
+    budget >= capacity
+        || match replan {
+            Replan::Keep => true,
+            Replan::Full => false,
+            Replan::Last(released) => released < budget,
+        }
 }
 
 /// Extends `bundle` greedily with the tasks agent `id` can win against `claims`, up to

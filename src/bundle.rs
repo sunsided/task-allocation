@@ -143,14 +143,30 @@ impl<Task> Bundle<Task> {
     where
         Task: PartialEq,
     {
-        if index >= self.added.len() {
-            return Vec::new();
-        }
-
-        let released: Vec<Task> = self.added.drain(index..).map(|(task, _)| task).collect();
-        self.path.retain(|task| !released.contains(task));
+        let mut released = Vec::new();
+        self.release_from_with(index, |task| released.push(task));
 
         released
+    }
+
+    /// Removes every task added at bundle index `index` or later, as
+    /// [`release_from`](Bundle::release_from) does, handing each to `released` in the order
+    /// they were added instead of collecting them. It does not allocate.
+    pub fn release_from_with(&mut self, index: usize, mut released: impl FnMut(Task))
+    where
+        Task: PartialEq,
+    {
+        if index >= self.added.len() {
+            return;
+        }
+
+        let dropped = &self.added[index..];
+        self.path
+            .retain(|task| !dropped.iter().any(|(held, _)| held == task));
+
+        for (task, _) in self.added.drain(index..) {
+            released(task);
+        }
     }
 
     /// Removes every task.

@@ -185,3 +185,59 @@ fn replanning_rebuilds_released_tasks() {
     assert_eq!(bundle_of(&full), [0, 1, 2]);
     assert!(!keep.can_bid() && !last.can_bid() && !full.can_bid());
 }
+
+/// A bundle budget caps the tasks one bundle phase adds, and the bundle fills over rounds.
+#[test]
+fn bundle_budget_spreads_the_phase() {
+    let mut budgeted = agent(0, 1, 3, &[9, 8, 7]).with_bundle_budget(2);
+
+    assert_eq!(budgeted.build_bundle(), 2);
+    assert!(budgeted.can_bid());
+    assert_eq!(budgeted.build_bundle(), 1);
+    assert_eq!(bundle_of(&budgeted), [0, 1, 2]);
+    assert!(!budgeted.can_bid());
+}
+
+/// A budget that allows no task is a caller bug.
+#[test]
+#[should_panic(expected = "allowed to add a task")]
+fn zero_bundle_budget_panics() {
+    let _ = agent(0, 1, 1, &[1]).with_bundle_budget(0);
+}
+
+/// A replan that releases more than a budget below the capacity re-adds is rejected.
+#[test]
+#[should_panic(expected = "cannot re-add what this replan releases")]
+fn full_replan_outruns_a_small_budget() {
+    let _ = agent(0, 1, 3, &[9, 8, 7])
+        .with_replan(super::Replan::Full)
+        .with_bundle_budget(2);
+}
+
+/// A partial replan releasing exactly the budget would keep the bundle from growing; the
+/// check also holds when the budget is set first.
+#[test]
+#[should_panic(expected = "cannot re-add what this replan releases")]
+fn partial_replan_matching_the_budget_is_rejected() {
+    let _ = agent(0, 1, 3, &[9, 8, 7])
+        .with_bundle_budget(2)
+        .with_replan(super::Replan::Last(2));
+}
+
+/// A partial replan within the budget still fills the bundle, and a budget that covers the
+/// capacity works with any replan.
+#[test]
+fn budgets_that_cover_the_replan_are_fine() {
+    let mut partial = agent(0, 1, 3, &[9, 8, 7])
+        .with_bundle_budget(2)
+        .with_replan(super::Replan::Last(1));
+    partial.build_bundle();
+    partial.build_bundle();
+    assert_eq!(partial.bundle().len(), 3);
+
+    let mut full = agent(0, 1, 3, &[9, 8, 7])
+        .with_bundle_budget(3)
+        .with_replan(super::Replan::Full);
+    full.build_bundle();
+    assert_eq!(full.bundle().len(), 3);
+}

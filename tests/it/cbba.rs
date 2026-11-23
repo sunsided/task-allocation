@@ -296,6 +296,31 @@ proptest! {
         stays_settled(&mut simulation)?;
     }
 
+    /// Agents that add at most one or two tasks per round, spreading their bundle phases,
+    /// still settle on stable assignments.
+    #[test]
+    fn budgeted_runs_settle((instance, network) in scenario(), budget in 1_usize..3) {
+        let team = instance.agents.len();
+        let agents = instance
+            .agents
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(id, valuation)| {
+                Agent::new(AgentId(id), team, instance.tasks, instance.capacity, valuation)
+                    .with_bundle_budget(budget)
+            })
+            .collect();
+        let healed = network.partitions.iter().map(|partition| partition.until).max().unwrap_or(0);
+        let mut simulation = Simulation::new(agents, network);
+        let Some(_) = simulation.run_until_settled(healed + SETTLE_TICKS) else {
+            return Err(TestCaseError::fail("did not settle"));
+        };
+
+        stable(&simulation, &instance)?;
+        stays_settled(&mut simulation)?;
+    }
+
     /// Once settled, nothing changes, however long the team keeps talking.
     #[test]
     fn settled_teams_stay_settled((instance, network) in scenario()) {

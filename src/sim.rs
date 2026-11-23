@@ -250,6 +250,12 @@ pub struct Simulation<A: Participant> {
     /// Copies still on their way.
     in_flight: Copies<A::Message>,
 
+    /// Copies due this tick, kept between ticks so delivering does not allocate.
+    due: Copies<A::Message>,
+
+    /// Each agent's outbox for this tick, kept between ticks so stepping does not allocate.
+    outboxes: Vec<Vec<A::Message>>,
+
     /// The sending order of the next copy.
     next_order: u64,
 
@@ -279,6 +285,8 @@ impl<A: Participant> Simulation<A> {
             rng,
             tick: 0,
             in_flight: Vec::new(),
+            due: Vec::new(),
+            outboxes: Vec::new(),
             next_order: 0,
             stats: Stats::default(),
         }
@@ -287,14 +295,16 @@ impl<A: Participant> Simulation<A> {
     /// Runs one tick: delivers the messages due, runs every agent's round, and broadcasts
     /// what the agents put in their outboxes.
     pub fn step(&mut self) {
-        let mut outboxes: Vec<Vec<A::Message>> = self.agents.iter().map(|_| Vec::new()).collect();
+        let mut outboxes = core::mem::take(&mut self.outboxes);
+        outboxes.resize_with(self.agents.len(), Vec::new);
         self.deliver_due(&mut outboxes);
 
         for (agent, outbox) in self.agents.iter_mut().zip(&mut outboxes) {
             agent.act(self.tick, outbox);
         }
 
-        self.broadcast_all(outboxes);
+        self.broadcast_all(&mut outboxes);
+        self.outboxes = outboxes;
         self.tick += 1;
     }
 
@@ -326,25 +336,31 @@ impl<A: Participant> Simulation<A> {
     /// receivers broadcast in response in `outboxes`.
     fn deliver_due(&mut self, outboxes: &mut [Vec<A::Message>]) {
         let tick = self.tick;
-        let (mut due, waiting): (Copies<A::Message>, Copies<A::Message>) = self
-            .in_flight
-            .drain(..)
-            .partition(|copy| copy.arrives <= tick);
-        self.in_flight = waiting;
-        due.sort_unstable_by_key(|copy| (copy.arrives, copy.order));
+        let mut due = core::mem::take(&mut self.due);
+        let mut index = 0;
+        while index < self.in_flight.len() {
+            if self.in_flight[index].arrives <= tick {
+                due.push(self.in_flight.swap_remove(index));
+            } else {
+                index += 1;
+            }
+        }
 
-        for copy in due {
+        due.sort_unstable_by_key(|copy| (copy.arrives, copy.order));
+        for copy in due.drain(..) {
             let to = copy.to.index();
             self.agents[to].receive(tick, &copy.message, &mut outboxes[to]);
             self.stats.delivered += 1;
         }
+
+        self.due = due;
     }
 
-    /// Broadcasts every message in every agent's outbox.
-    fn broadcast_all(&mut self, outboxes: Vec<Vec<A::Message>>) {
+    /// Broadcasts every message in every agent's outbox, leaving the outboxes empty.
+    fn broadcast_all(&mut self, outboxes: &mut [Vec<A::Message>]) {
         let agents = self.agents.len();
-        for (sender, outbox) in outboxes.into_iter().enumerate() {
-            for message in outbox {
+        for (sender, outbox) in outboxes.iter_mut().enumerate() {
+            for message in outbox.drain(..) {
                 let message = Rc::new(message);
                 for receiver in (0..agents).filter(|&receiver| receiver != sender) {
                     self.send(AgentId(sender), AgentId(receiver), &message);
