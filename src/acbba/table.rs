@@ -131,7 +131,10 @@ pub struct Decision {
 pub enum Rules {
     /// Table 1 of the 2010 GNC paper, the original ACBBA. A reset forgets the winner and
     /// the time, as an agent that never heard of the task, so that only the sender's claim,
-    /// which it passes on, travels further.
+    /// which it passes on, travels further: with time zero, row 33 never spreads the reset
+    /// as if it were a released bid, and rows 12 and 30 still take any later claim. The
+    /// paper only says the winner and bid are cleared. Stamping the reset with the current
+    /// time instead gives the same outcomes in the comparison matrix.
     #[default]
     Gnc2010,
 

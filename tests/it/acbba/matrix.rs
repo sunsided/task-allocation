@@ -150,7 +150,7 @@ fn team(instance: &Instance, arm: Arm) -> Vec<Agent<TieFree>> {
 fn outcome(instance: &Instance, network: Network, arm: Arm) -> Outcome {
     let mut simulation = Simulation::new(team(instance, arm), network);
     if simulation.run_until_settled(SETTLE_TICKS).is_some() {
-        return Outcome::Agreed;
+        return classify(&simulation, instance);
     }
 
     let sent = simulation.stats().sent;

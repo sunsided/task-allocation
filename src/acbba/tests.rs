@@ -116,3 +116,30 @@ fn foreign_messages_are_ignored() {
 fn zero_period_panics() {
     let _ = agent(0, 1, &[1]).announce_every(0);
 }
+
+/// A tie between two other winners goes to the smaller one, unless the agent leaves ties as
+/// printed.
+#[test]
+fn third_party_ties_follow_the_agent_setting() {
+    let tied = |sender: usize, winner: usize| Message {
+        sender: AgentId(sender),
+        task: TaskId(0),
+        claim: Claim {
+            winner: Some(AgentId(winner)),
+            bid: 5,
+            time: 3,
+        },
+    };
+
+    for (printed, expected) in [(false, 0), (true, 3)] {
+        let mut onlooker = agent(1, 1, &[0]);
+        if printed {
+            onlooker = onlooker.with_printed_ties();
+        }
+
+        onlooker.receive(3, &tied(3, 3));
+        onlooker.receive(4, &tied(2, 0));
+
+        assert_eq!(onlooker.claim(TaskId(0)).winner, Some(AgentId(expected)));
+    }
+}

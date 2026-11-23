@@ -9,6 +9,12 @@
 //! sender's claim past the receiver's, and ‡ stamps the receiver's own entry past the
 //! sender's. Both readings are inferred.
 //!
+//! A † update broadcasts the receiver's new entry: the sender's winner and bid, with the
+//! pushed time. Passing the sender's claim on unchanged would drop the push, which is what
+//! the remarks say propagates the outcome. A ‡ push is broadcast with the receiver's own
+//! entry where the row rebroadcasts; in row 13, which stays silent, it only changes the
+//! receiver's own entry, which later answers carry.
+//!
 //! Everything else is the 2011 table, and rows keep their 2011 numbers. As tabulated, the
 //! thesis also has the receiver keep its entry, with ‡, when the sender knows of no winner
 //! and the receiver believes the sender wins (2011 row 32), where 2011 updates. Its text
