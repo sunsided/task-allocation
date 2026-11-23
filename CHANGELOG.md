@@ -7,6 +7,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/sunsided/task-allocation/compare/v0.1.1...v0.1.2) - 2026-11-23
+
+### Added
+
+- Add tasks to, retire tasks from, and remove agents from a running team
+- Add a per-phase bundle budget, and reuse the simulator's buffers
+
+### Changed
+
+- Check bids and capacity after team changes, and count plans safely
+- Reject budgets that a replan outruns, and release without allocating
+
 ## [0.1.1](https://github.com/sunsided/task-allocation/compare/v0.1.0...v0.1.1) - 2026-11-22
 
 ### Added
