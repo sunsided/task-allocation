@@ -165,10 +165,14 @@ fn report(name: &str, assignment: &Assignment, started: Instant, note: &str) {
     );
 }
 
-/// How many workers' plans differ between `before` and `after`, comparing the first
-/// `workers` workers' queues as sets of jobs.
-fn changed_plans(before: &Assignment, after: &Assignment, workers: usize) -> usize {
-    (0..workers)
+/// How many of `workers`' plans differ between `before` and `after`, comparing their queues
+/// as sets of jobs.
+fn changed_plans(
+    before: &Assignment,
+    after: &Assignment,
+    workers: impl Iterator<Item = usize>,
+) -> usize {
+    workers
         .filter(|&worker| {
             let mut old: Vec<TaskId> = before.bundle(AgentId(worker)).tasks().copied().collect();
             let mut new: Vec<TaskId> = after.bundle(AgentId(worker)).tasks().copied().collect();
@@ -292,7 +296,7 @@ fn describe_rush(before: &Assignment, after: &Assignment) {
         "{:>20}  rush job taken by worker {:?}; {} of {WORKERS} plans changed",
         "",
         after.holder(TaskId(JOBS)).map(|worker| worker.0),
-        changed_plans(before, after, WORKERS),
+        changed_plans(before, after, 0..WORKERS),
     );
 }
 
@@ -333,7 +337,7 @@ fn worker_leaves(homes: &[Cell], jobs: &[Job]) {
         "{:>20}  {rehomed} of worker 0's {} jobs found a new worker; {} other plans changed",
         "",
         orphans.len(),
-        changed_plans(&before, &after, WORKERS) - 1,
+        changed_plans(&before, &after, 1..WORKERS),
     );
 }
 

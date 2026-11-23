@@ -511,7 +511,8 @@ fn grew_from(
 }
 
 /// Checks what a settled team of the agents that did not leave promises: agreement among
-/// them on every winner, consistent bundles, and no agent with room able to outbid.
+/// them on every winner and winning bid, consistent bundles within capacity, honest bids,
+/// and no agent with room able to outbid.
 fn stable_among_active(
     simulation: &Simulation<Agent<support::Agent>>,
     tasks: usize,
@@ -528,11 +529,28 @@ fn stable_among_active(
     for agent in &active {
         prop_assert!(agent.is_consistent());
         for task in (0..tasks).map(TaskId) {
-            prop_assert_eq!(agent.winner(task), assignment.holder(task));
+            let holder = assignment.holder(task);
+            prop_assert_eq!(agent.winner(task), holder);
+
+            let recorded = holder.and_then(|holder| {
+                assignment
+                    .bundle(holder)
+                    .entries()
+                    .find(|(held, _)| **held == task)
+                    .map(|(_, gain)| gain)
+            });
+            prop_assert_eq!(agent.winning_bid(task), recorded.unwrap_or(0));
         }
 
         let bundle = agent.bundle();
-        if bundle.len() >= capacity {
+        prop_assert!(
+            bundle.len() <= capacity,
+            "{:?} holds {} tasks",
+            agent.id(),
+            bundle.len()
+        );
+        gains_replay(agent.valuation(), bundle)?;
+        if bundle.len() == capacity {
             continue;
         }
 
