@@ -19,6 +19,8 @@
 //!   agrees on a conflict-free assignment.
 //! - [`ccbba`]: CBBA for coupled tasks that need or exclude each other, optionally with
 //!   timing limits between their starts on timed routes.
+//! - [`acbba`]: asynchronous CBBA. Agents bid and resolve conflicts on their own schedule,
+//!   one task per message, and only pass on what is new.
 //! - [`sim`]: a deterministic simulated network with delays, losses and partitions, to run
 //!   teams on.
 //! - [`auction`]: auction baselines with a central auctioneer: sequential single-item
@@ -67,6 +69,7 @@
 
 extern crate alloc;
 
+pub mod acbba;
 mod assignment;
 pub mod auction;
 mod bundle;
