@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 54fbbdb93d63cf961914aea954fc33d8b93e97c7d3cc6d9640bf2bb08f8b1757 # shrinks to (instance, network) = (Instance { agents: [Courier(BestInsertion(Courier { start: 0, sites: [Site { position: 12, duration: 7, deadline: 93 }, Site { position: 99, duration: 15, deadline: 221 }, Site { position: 8, duration: 8, deadline: 172 }, Site { position: 25, duration: 2, deadline: 22 }, Site { position: 15, duration: 5, deadline: 233 }], rewards: [1, 6, 13, 7, 16] })), Coverage(Coverage { covers: [249, 210, 181, 150, 250], weights: [8, 19, 2, 1, 4, 1, 9, 8], allowed: 3234476431 }), Coverage(Coverage { covers: [193, 66, 82, 52, 98], weights: [2, 6, 1, 5, 18, 13, 11, 16], allowed: 3684519851 })], tasks: 5, capacity: 3 }, Network { seed: 228550290062282494, max_delay: 1, loss_per_mille: 70, topology: Links([(AgentId(0), AgentId(1)), (AgentId(1), AgentId(2)), (AgentId(0), AgentId(1))]), partitions: [Partition { from: 12, until: 18, groups: [2, 0, 1] }] }), leaving = 4

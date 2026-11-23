@@ -241,3 +241,71 @@ fn budgets_that_cover_the_replan_are_fine() {
     full.build_bundle();
     assert_eq!(full.bundle().len(), 3);
 }
+
+/// A task added to a running agent is bid on with the room left; the bundle stays.
+#[test]
+fn added_tasks_are_bid_on_with_room_left() {
+    let valuation = Rewards {
+        rewards: alloc::vec![9, 8, 20],
+        step: 1,
+    };
+    let mut worker = Agent::new(AgentId(0), 1, 2, 3, valuation);
+    worker.build_bundle();
+    assert_eq!(bundle_of(&worker), [0, 1]);
+
+    let task = worker.add_task();
+    worker.build_bundle();
+
+    assert_eq!(task, TaskId(2));
+    assert_eq!(bundle_of(&worker), [0, 1, 2]);
+}
+
+/// A message about fewer tasks than the receiver knows merges over the tasks both know.
+#[test]
+fn shorter_messages_merge_over_shared_tasks() {
+    let mut receiver = agent(0, 2, 1, &[1, 1, 1]);
+    let mut sender = agent(1, 2, 1, &[0, 9]);
+    sender.build_bundle();
+
+    assert!(receiver.receive(&sender.message()));
+    assert_eq!(receiver.winner(TaskId(1)), Some(AgentId(1)));
+    assert_eq!(receiver.winner(TaskId(2)), None);
+}
+
+/// A retired task is given up with the tasks added after it, and never bid on again, even
+/// when a stale message still names a winner.
+#[test]
+fn retired_tasks_are_released_and_stay_void() {
+    let mut worker = agent(0, 2, 3, &[9, 8, 7]);
+    let mut other = agent(1, 2, 1, &[0, 20, 0]);
+    worker.build_bundle();
+    other.build_bundle();
+    let stale = other.message();
+
+    assert!(worker.retire_task(TaskId(1)));
+    assert_eq!(bundle_of(&worker), [0]);
+
+    worker.receive(&stale);
+    worker.build_bundle();
+    assert_eq!(worker.winner(TaskId(1)), None);
+    assert_eq!(bundle_of(&worker), [0, 2]);
+}
+
+/// An agent that leaves gives up everything; the others void its claims and its messages.
+#[test]
+fn departed_agents_are_forgotten() {
+    let mut stays = agent(0, 2, 1, &[5, 5]);
+    let mut goes = agent(1, 2, 1, &[0, 9]);
+    goes.build_bundle();
+    let goodbye = goes.message();
+    stays.receive(&goodbye);
+    assert_eq!(stays.winner(TaskId(1)), Some(AgentId(1)));
+
+    goes.leave();
+    stays.forget_agent(AgentId(1));
+
+    assert!(goes.has_left() && goes.bundle().is_empty() && !goes.can_bid());
+    assert!(stays.has_departed(AgentId(1)));
+    assert_eq!(stays.winner(TaskId(1)), None);
+    assert!(!stays.receive(&goodbye));
+}

@@ -164,6 +164,10 @@ impl<V: Valuation<TaskId>> Participant for cbba::Agent<V> {
 
     /// Runs the bundle phase and broadcasts the agent's full state, every round.
     fn act(&mut self, _now: u64, outbox: &mut Vec<cbba::Message>) {
+        if self.has_left() {
+            return;
+        }
+
         self.build_bundle();
         outbox.push(self.message());
     }
@@ -176,16 +180,22 @@ impl<V: Valuation<TaskId>> Participant for cbba::Agent<V> {
     /// The team agrees on every winner, every bundle matches, no agent's bundle phase would
     /// change anything, and every message in flight carries the agreed winners. A team
     /// that has not bid yet is not settled.
+    ///
+    /// Agents that left the team, and messages they sent, are disregarded.
     fn is_settled(team: &[Self], in_flight: &[&cbba::Message]) -> bool {
-        let Some(first) = team.first() else {
+        let mut active = team.iter().filter(|agent| !agent.has_left());
+        let Some(first) = active.next() else {
             return true;
         };
 
-        team.iter().all(cbba::Agent::is_consistent)
-            && !team.iter().any(cbba::Agent::can_bid)
-            && team.iter().all(|agent| agent.claims() == first.claims())
+        let active = || team.iter().filter(|agent| !agent.has_left());
+
+        active().all(cbba::Agent::is_consistent)
+            && !active().any(cbba::Agent::can_bid)
+            && active().all(|agent| agent.claims() == first.claims())
             && in_flight
                 .iter()
+                .filter(|message| !first.has_departed(message.sender()))
                 .all(|message| message.claims() == first.claims())
     }
 }
@@ -407,6 +417,11 @@ impl<A: Participant> Simulation<A> {
     #[must_use]
     pub fn agents(&self) -> &[A] {
         &self.agents
+    }
+
+    /// The team, to change it between steps: add a task, retire one, or let an agent leave.
+    pub fn agents_mut(&mut self) -> &mut [A] {
+        &mut self.agents
     }
 
     /// The current tick: how many steps have run.

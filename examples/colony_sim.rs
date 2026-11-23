@@ -7,8 +7,12 @@
 //! job appears and a worker leaves, and the colony allocates again; the example counts how
 //! many workers' plans change.
 //!
-//! The job set is fixed when agents are created, so reacting to a change means a new
-//! allocation round. Fixed rewards with deadlines over a metric keep the gains diminishing,
+//! A running team takes changes without starting over: the new job goes to the running
+//! agents with `add_task`, and the departing worker leaves with `leave` while the others
+//! `forget_agent` it. Workers that keep their bundles leave every plan alone, but a new job
+//! then waits until someone has room; workers that reconsider their last slot take it at
+//! once, at the price of reshuffling some last slots. The example compares both with
+//! allocating from scratch. Fixed rewards with deadlines over a metric keep the gains diminishing,
 //! which CBBA needs to converge.
 //!
 //! Run with `cargo run --release --example colony_sim`.
@@ -175,9 +179,8 @@ fn changed_plans(before: &Assignment, after: &Assignment, workers: usize) -> usi
         .count()
 }
 
-/// Allocates the board with every method and prints how they compare; returns CBBA's
-/// assignment, the reference for the changes that follow.
-fn compare(plans: &[Plan], jobs: &[Job]) -> Assignment {
+/// Allocates the board with every method and prints how they compare.
+fn compare(plans: &[Plan], jobs: &[Job]) {
     println!("{WORKERS} workers, {JOBS} jobs, up to {QUEUE} queued each:");
 
     let started = Instant::now();
@@ -209,13 +212,30 @@ fn compare(plans: &[Plan], jobs: &[Job]) -> Assignment {
         &format!(", settled in {rounds} rounds"),
     );
     assert!(full.is_conflict_free());
-
-    baseline
 }
 
-/// Adds a rush job next to worker 0, allocates again, and prints who takes it and how many
-/// plans change.
-fn rush_job(homes: &[Cell], jobs: &[Job], baseline: &Assignment) {
+/// A CBBA team over the first `tasks` jobs, every worker replanning as `replan` says,
+/// settled on a perfect network.
+fn settled_team(plans: &[Plan], tasks: usize, replan: Replan) -> Simulation<Agent<Plan>> {
+    let team = plans.len();
+    let agents = plans
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(id, plan)| Agent::new(AgentId(id), team, tasks, QUEUE, plan).with_replan(replan))
+        .collect();
+    let mut simulation = Simulation::new(agents, Network::default());
+    simulation
+        .run_until_settled(10_000)
+        .expect("the colony agrees");
+
+    simulation
+}
+
+/// Adds a rush job next to worker 0: to a running team that keeps its bundles, to one that
+/// reconsiders each worker's last slot, and by allocating from scratch; prints who takes it
+/// and how many plans change each way.
+fn rush_job(homes: &[Cell], jobs: &[Job]) {
     println!("a rush job appears next to worker 0:");
     let (x, y) = homes[0];
     let mut jobs = jobs.to_vec();
@@ -225,44 +245,95 @@ fn rush_job(homes: &[Cell], jobs: &[Job], baseline: &Assignment) {
         reward: 150,
         deadline: 30,
     });
+    let plans = workers(homes, &jobs);
 
+    add_to_running_team(&plans, Replan::Keep, "added, keep");
+    add_to_running_team(&plans, Replan::Last(1), "added, last slot");
+
+    let before = settled_team(&plans, JOBS, Replan::Keep).assignment();
     let started = Instant::now();
-    let (with_rush, rounds) = cbba(&workers(homes, &jobs), JOBS + 1, Replan::Keep);
+    let (scratch, rounds) = cbba(&plans, JOBS + 1, Replan::Keep);
     report(
-        "CBBA",
-        &with_rush,
+        "from scratch",
+        &scratch,
         started,
         &format!(", settled in {rounds} rounds"),
     );
+    describe_rush(&before, &scratch);
+}
+
+/// Settles a team over the original jobs, adds the rush job to every running agent, and
+/// reports the result as `name`.
+fn add_to_running_team(plans: &[Plan], replan: Replan, name: &str) {
+    let mut running = settled_team(plans, JOBS, replan);
+    let before = running.assignment();
+    let settled_at = running.tick();
+
+    let started = Instant::now();
+    for agent in running.agents_mut() {
+        agent.add_task();
+    }
+    let settled = running
+        .run_until_settled(10_000)
+        .expect("the colony agrees");
+    let after = running.assignment();
+    report(
+        name,
+        &after,
+        started,
+        &format!(", settled in {} more rounds", settled - settled_at),
+    );
+    describe_rush(&before, &after);
+}
+
+/// Prints who holds the rush job in `after`, and how many plans differ from `before`.
+fn describe_rush(before: &Assignment, after: &Assignment) {
     println!(
         "{:>20}  rush job taken by worker {:?}; {} of {WORKERS} plans changed",
         "",
-        with_rush.holder(TaskId(JOBS)).map(|worker| worker.0),
-        changed_plans(baseline, &with_rush, WORKERS),
+        after.holder(TaskId(JOBS)).map(|worker| worker.0),
+        changed_plans(before, after, WORKERS),
     );
 }
 
-/// Removes worker 0, allocates again, and prints how many of its jobs found a new worker.
-fn worker_leaves(homes: &[Cell], jobs: &[Job], baseline: &Assignment) {
+/// Lets worker 0 leave the running team, and prints how many of its jobs found a new worker
+/// and how many other plans changed.
+fn worker_leaves(homes: &[Cell], jobs: &[Job]) {
     println!("worker 0 leaves:");
+    let mut running = settled_team(&workers(homes, jobs), JOBS, Replan::Keep);
+    let before = running.assignment();
+
     let started = Instant::now();
-    let (without, rounds) = cbba(&workers(&homes[1..], jobs), JOBS, Replan::Keep);
+    let settled_at = running.tick();
+    for agent in running.agents_mut() {
+        if agent.id() == AgentId(0) {
+            agent.leave();
+        } else {
+            agent.forget_agent(AgentId(0));
+        }
+    }
+    let rounds = running
+        .run_until_settled(10_000)
+        .expect("the colony agrees")
+        - settled_at;
+    let after = running.assignment();
     report(
-        "CBBA",
-        &without,
+        "left the team",
+        &after,
         started,
-        &format!(", settled in {rounds} rounds"),
+        &format!(", settled in {rounds} more rounds"),
     );
 
-    let orphans = baseline.bundle(AgentId(0));
+    let orphans = before.bundle(AgentId(0));
     let rehomed = orphans
         .tasks()
-        .filter(|&&task| without.holder(task).is_some())
+        .filter(|&&task| after.holder(task).is_some())
         .count();
     println!(
-        "{:>20}  {rehomed} of worker 0's {} jobs found a new worker",
+        "{:>20}  {rehomed} of worker 0's {} jobs found a new worker; {} other plans changed",
         "",
-        orphans.len()
+        orphans.len(),
+        changed_plans(&before, &after, WORKERS) - 1,
     );
 }
 
@@ -271,7 +342,7 @@ fn main() {
     let homes: Vec<Cell> = (0..WORKERS).map(|_| dice.cell()).collect();
     let jobs: Vec<Job> = (0..JOBS).map(|_| dice.job()).collect();
 
-    let baseline = compare(&workers(&homes, &jobs), &jobs);
-    rush_job(&homes, &jobs, &baseline);
-    worker_leaves(&homes, &jobs, &baseline);
+    compare(&workers(&homes, &jobs), &jobs);
+    rush_job(&homes, &jobs);
+    worker_leaves(&homes, &jobs);
 }
