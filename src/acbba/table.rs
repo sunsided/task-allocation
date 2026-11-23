@@ -1,26 +1,40 @@
-//! The ACBBA deconfliction table: what a receiver does with one task's entry in a message,
+//! The ACBBA deconfliction tables: what a receiver does with one task's entry in a message,
 //! and what it broadcasts in response.
 //!
-//! This is Table 1 of Johnson, Ponda, Choi and How, "Asynchronous Decentralized Task
-//! Allocation for Dynamic Environments", AIAA Infotech@Aerospace 2011
-//! (<https://doi.org/10.2514/6.2011-1441>). The rule numbers below are the table's row
-//! numbers; the table itself has no rows 21 and 27, which fall to the default.
+//! Two published revisions of the table differ, and an agent follows one of them, chosen
+//! with [`Rules`]:
 //!
-//! Unlike CBBA's table, each claim carries the time its bid was made (`t`), and every rule
-//! also decides what to rebroadcast, so agents only pass on what is new.
+//! - [`Rules::Gnc2010`]: Table 1 of Johnson, Ponda, Choi and How, "Improving the Efficiency
+//!   of a Decentralized Tasking Algorithm for UAV Teams with Asynchronous Communications",
+//!   AIAA GNC 2010 (<https://doi.org/10.2514/6.2010-8421>). Where the bids and times of two
+//!   different winners point different ways, the receiver forgets its winner and passes the
+//!   sender's claim on, and newer information about an agreed winner is taken without
+//!   rebroadcasting it. Its rules live in [`gnc2010`].
+//! - [`Rules::Infotech2011`]: Table 1 of the same authors' "Asynchronous Decentralized Task
+//!   Allocation for Dynamic Environments", AIAA Infotech@Aerospace 2011
+//!   (<https://doi.org/10.2514/6.2011-1441>), which cites the 2010 paper for its details.
+//!   It takes the newer claim in those cases instead. That table has no rows 21 and 27,
+//!   which fall to the default. Its rules live in this module.
 //!
-//! Two choices the paper leaves open:
+//! The rule numbers below are each table's row numbers. Unlike CBBA's table, each claim
+//! carries the time its bid was made (`t`), and every rule also decides what to rebroadcast,
+//! so agents only pass on what is new.
+//!
+//! Choices the papers leave open:
 //!
 //! - Two times count as equal when they differ by less than `epsilon` (`ε_t` in the
-//!   paper). When a time is both later and equal within `epsilon`, as rows 4 and 5 can be,
-//!   the equality rule wins: the information is the same.
-//! - A reset forgets the winner and stamps the claim with the current time, the same empty
-//!   bid it rebroadcasts.
+//!   papers, which call it small but give no value). When a time is both later and equal
+//!   within `epsilon`, as rows 4 and 5 can be, the equality rule wins: the information is
+//!   the same.
+//! - What time a reset leaves: see [`Rules`].
 //!
-//! One deliberate deviation: with equal bids for two different winners, row 9 and the
-//! missing row 27 leave the receiver's claim, on both sides, so two neighbors that disagree
-//! about a tie answer each other forever. Here the smaller winner takes the tie, as rows 2
-//! and 18 already do, and the rows report as 9 and 27.
+//! One deliberate deviation, which [`Exchange::third_party_ties`] turns off: with equal
+//! bids for two different winners, row 9 and row 27 (the missing row 27 in 2011) leave the
+//! receiver's claim, on both sides, so two neighbors that disagree about a tie answer each
+//! other forever. The 2010 paper expects the prospective winners to break such ties once
+//! they hear of them; with integer scores, ties are common enough that this did not settle
+//! in simulation. Here the smaller winner takes the tie, as rows 2 and 18 already do, and
+//! the rows report as 9 and 27.
 
 use crate::id::AgentId;
 
@@ -67,6 +81,14 @@ pub enum Change {
     /// confirms the bid is still active.
     UpdateTime,
 
+    /// Take the sender's claim, and when it is not newer than the receiver's, stamp it
+    /// `epsilon` after the receiver's time; the thesis's "update†", as inferred.
+    UpdatePast,
+
+    /// Keep its own claim, and when it is not newer than the sender's, stamp it `epsilon`
+    /// after the sender's time; the thesis's "update‡" and "leave‡", as inferred.
+    KeepPast,
+
     /// Forget the winner.
     Reset,
 
@@ -103,6 +125,27 @@ pub struct Decision {
     pub row: u8,
 }
 
+/// Which published decision table an agent follows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Rules {
+    /// Table 1 of the 2010 GNC paper, the original ACBBA. A reset forgets the winner and
+    /// the time, as an agent that never heard of the task, so that only the sender's claim,
+    /// which it passes on, travels further.
+    #[default]
+    Gnc2010,
+
+    /// Table 1 of the 2011 Infotech@Aerospace paper. A reset forgets the winner and stamps
+    /// the entry with the current time, the same empty bid that rows 14 and 16 broadcast.
+    Infotech2011,
+
+    /// Table 4.1 of Johnson's thesis, "Decentralized Task Allocation for Dynamic
+    /// Environments" (MIT, 2012): the 2011 table with times pushed past the losing claim's
+    /// in rows 1, 3, 13, 15, 17, 19, 31 and 32 (2011 numbering), as [`thesis2012`]
+    /// describes. A reset works as in 2011.
+    Thesis2012,
+}
+
 /// The two sides of one exchange.
 #[derive(Clone, Copy, Debug)]
 pub struct Exchange {
@@ -114,6 +157,13 @@ pub struct Exchange {
 
     /// Times closer than this count as equal; `ε_t` in the paper.
     pub epsilon: u64,
+
+    /// The table to follow.
+    pub rules: Rules,
+
+    /// Whether a receiver that is neither of two tied winners breaks the tie for the
+    /// smaller one, in rows 9 and 27; the published tables leave both claims as they are.
+    pub third_party_ties: bool,
 }
 
 /// Update and rebroadcast the sender's information.
@@ -130,6 +180,24 @@ const fn leave(row: u8) -> Decision {
     Decision {
         change: Change::Leave,
         broadcast: Broadcast::Own,
+        row,
+    }
+}
+
+/// Update, and broadcast nothing.
+const fn update_quietly(row: u8) -> Decision {
+    Decision {
+        change: Change::Update,
+        broadcast: Broadcast::Nothing,
+        row,
+    }
+}
+
+/// Forget the winner, and rebroadcast the sender's information.
+const fn reset(row: u8) -> Decision {
+    Decision {
+        change: Change::Reset,
+        broadcast: Broadcast::Sender,
         row,
     }
 }
@@ -151,6 +219,15 @@ impl Exchange {
     /// `held`.
     #[must_use]
     pub fn decide(&self, sent: Claim, held: Claim) -> Decision {
+        match self.rules {
+            Rules::Gnc2010 => self.decide_gnc2010(sent, held),
+            Rules::Infotech2011 => self.decide_infotech2011(sent, held),
+            Rules::Thesis2012 => thesis2012::decide(self.decide_infotech2011(sent, held)),
+        }
+    }
+
+    /// The decision under the 2011 table.
+    fn decide_infotech2011(&self, sent: Claim, held: Claim) -> Decision {
         match sent.winner {
             Some(winner) if winner == self.sender => self.sender_claims_itself(sent, held),
             Some(winner) if winner == self.receiver => self.sender_claims_receiver(sent, held),
@@ -169,7 +246,7 @@ impl Exchange {
         match held.winner {
             Some(winner) if winner == self.receiver => receiver_contested(sent, held, [1, 2, 3]),
             Some(winner) if winner == self.sender => self.newer_wins(sent, held, [4, 5, 6], false),
-            Some(_) => bids_and_times(sent, held, [7, 8, 9, 10, 11], true),
+            Some(_) => self.bids_and_times(sent, held, [7, 8, 9, 10, 11], true),
             None => update(12),
         }
     }
@@ -208,7 +285,7 @@ impl Exchange {
             Some(held_winner) if held_winner == winner => {
                 self.newer_wins(sent, held, [22, 23, 24], true)
             }
-            Some(_) => bids_and_times(sent, held, [25, 26, 27, 28, 29], false),
+            Some(_) => self.bids_and_times(sent, held, [25, 26, 27, 28, 29], false),
             None => update(30),
         }
     }
@@ -269,33 +346,51 @@ fn receiver_contested(sent: Claim, held: Claim, rows: [u8; 3]) -> Decision {
     }
 }
 
-/// Rows 7 to 11 and 25 to 29: sender and receiver name two different winners, neither of
-/// them the receiver, so bids and times decide. `rows` are the rows for a higher and not
-/// older bid, a lower and not newer bid, an equal bid (which the smaller winner takes), a
-/// lower but newer bid, and a higher but older bid. With `higher_older_updates`,
-/// a higher but older bid updates (row 11), otherwise it is answered (row 29).
-fn bids_and_times(sent: Claim, held: Claim, rows: [u8; 5], higher_older_updates: bool) -> Decision {
-    let [higher_newer, lower_older, equal, lower_newer, higher_older] = rows;
+impl Exchange {
+    /// Rows 7 to 11 and 25 to 29 of the 2011 table: sender and receiver name two different
+    /// winners, neither of them the receiver, so bids and times decide. `rows` are the rows
+    /// for a higher and not older bid, a lower and not newer bid, an equal bid, a lower but
+    /// newer bid, and a higher but older bid. With `higher_older_updates`, a higher but
+    /// older bid updates (row 11), otherwise it is answered (row 29).
+    fn bids_and_times(
+        &self,
+        sent: Claim,
+        held: Claim,
+        rows: [u8; 5],
+        higher_older_updates: bool,
+    ) -> Decision {
+        let [higher_newer, lower_older, equal, lower_newer, higher_older] = rows;
 
-    if sent.bid > held.bid && sent.time >= held.time {
-        update(higher_newer)
-    } else if sent.bid < held.bid && sent.time <= held.time {
-        leave(lower_older)
-    } else if sent.bid == held.bid {
-        if sent.winner < held.winner {
-            update(equal)
+        if sent.bid > held.bid && sent.time >= held.time {
+            update(higher_newer)
+        } else if sent.bid < held.bid && sent.time <= held.time {
+            leave(lower_older)
+        } else if sent.bid == held.bid {
+            self.tie(sent, held, equal)
+        } else if sent.bid < held.bid {
+            update(lower_newer)
+        } else if higher_older_updates {
+            update(higher_older)
         } else {
-            leave(equal)
+            leave(higher_older)
         }
-    } else if sent.bid < held.bid {
-        update(lower_newer)
-    } else if higher_older_updates {
-        update(higher_older)
-    } else {
-        leave(higher_older)
+    }
+
+    /// Row 9 or 27, `row`: equal bids for two different winners, neither of them the
+    /// receiver. The published tables leave and rebroadcast; with
+    /// [`third_party_ties`](Self::third_party_ties), the smaller winner takes the tie.
+    fn tie(&self, sent: Claim, held: Claim, row: u8) -> Decision {
+        if self.third_party_ties && sent.winner < held.winner {
+            update(row)
+        } else {
+            leave(row)
+        }
     }
 }
 
-/// Unit tests, one per row of the table.
+mod gnc2010;
+mod thesis2012;
+
+/// Unit tests, one per row of the 2011 table.
 #[cfg(test)]
 mod tests;

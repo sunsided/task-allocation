@@ -3,7 +3,7 @@
 //! quiet without agreeing, even without losses.
 
 use proptest::prelude::*;
-use task_allocation::acbba::Agent;
+use task_allocation::acbba::{Agent, Rules};
 use task_allocation::sim::{Network, Simulation};
 use task_allocation::{AgentId, TaskId, Valuation};
 
@@ -11,7 +11,10 @@ use crate::bundle::gains_replay;
 use crate::cbba::{MAX_TEAM, SETTLE_TICKS, network, topology};
 use crate::support::{self, Instance, instance_with};
 
-/// An ACBBA team for `instance`, re-announcing every `period` ticks when given one.
+mod matrix;
+
+/// An ACBBA team for `instance` under the 2011 rules, re-announcing every `period` ticks
+/// when given one.
 fn team(instance: &Instance, period: Option<u64>) -> Vec<Agent<support::Agent>> {
     instance
         .agents
@@ -19,7 +22,8 @@ fn team(instance: &Instance, period: Option<u64>) -> Vec<Agent<support::Agent>> 
         .cloned()
         .enumerate()
         .map(|(id, valuation)| {
-            let agent = Agent::new(AgentId(id), instance.tasks, instance.capacity, valuation);
+            let agent = Agent::new(AgentId(id), instance.tasks, instance.capacity, valuation)
+                .with_rules(Rules::Infotech2011);
             match period {
                 Some(period) => agent.announce_every(period),
                 None => agent,
@@ -100,7 +104,7 @@ fn stable(
 
 /// A network without losses or partitions: delays of up to five ticks, which reorder
 /// messages, on a complete or sparse topology.
-fn lossless(agents: usize) -> impl Strategy<Value = Network> {
+pub fn lossless(agents: usize) -> impl Strategy<Value = Network> {
     (any::<u64>(), 0_u64..=5, topology(agents)).prop_map(|(seed, max_delay, topology)| Network {
         seed,
         max_delay,
@@ -146,12 +150,9 @@ proptest! {
     }
 }
 
-/// The published rules alone can fail to agree, even without losses: agent 5
-/// keeps agent 1's released bid of 10 on task 0, made at tick 4, because under rows 28
-/// and 29 it is newer than agent 2's winning bid of 26 from tick 0. Re-announcing, with
-/// winning bids confirmed at the current time, settles the same run.
-#[test]
-fn stale_newer_bid_survives_without_reannouncing() {
+/// The instance of [`stale_newer_bid_survives_without_reannouncing`]: six agents, two of
+/// them coverage valuations, over six courier sites.
+fn stale_bid_instance() -> Instance {
     let site = |position, duration, deadline| support::Site {
         position,
         duration,
@@ -172,7 +173,7 @@ fn stale_newer_bid_survives_without_reannouncing() {
             rewards,
         }))
     };
-    let instance = Instance {
+    Instance {
         agents: vec![
             support::Agent::Coverage(support::Coverage {
                 covers: vec![0; 6],
@@ -191,7 +192,16 @@ fn stale_newer_bid_survives_without_reannouncing() {
         ],
         tasks: 6,
         capacity: 2,
-    };
+    }
+}
+
+/// The published rules alone can fail to agree, even without losses: agent 5
+/// keeps agent 1's released bid of 10 on task 0, made at tick 4, because under rows 28
+/// and 29 it is newer than agent 2's winning bid of 26 from tick 0. Re-announcing, with
+/// winning bids confirmed at the current time, settles the same run.
+#[test]
+fn stale_newer_bid_survives_without_reannouncing() {
+    let instance = stale_bid_instance();
     let link = |a, b| (AgentId(a), AgentId(b));
     let network = Network {
         seed: 14_530_582_918_442_739_863,

@@ -1,8 +1,8 @@
-//! One test per row of Table 1, with receiver 1, sender 2 and third agents 0 and 3.
+//! One test per row of the 2011 table, with receiver 1, sender 2 and third agents 0 and 3.
 //!
 //! Agent 0 is the smallest identifier, so ties can go either way.
 
-use super::{Broadcast, Change, Claim, Decision, Exchange};
+use super::{Broadcast, Change, Claim, Decision, Exchange, Rules};
 use crate::id::AgentId;
 
 /// The receiver.
@@ -34,6 +34,8 @@ fn decide(sent: Claim, held: Claim) -> Decision {
         receiver: I,
         sender: K,
         epsilon: 1,
+        rules: Rules::Infotech2011,
+        third_party_ties: true,
     }
     .decide(sent, held)
 }
@@ -81,6 +83,8 @@ fn rows_1_to_3() {
         receiver: K,
         sender: I,
         epsilon: 1,
+        rules: Rules::Infotech2011,
+        third_party_ties: true,
     };
     assert_eq!(smaller_sender.decide(claim(I, 5, 5), claim(K, 5, 5)).row, 2);
 }
@@ -371,6 +375,8 @@ fn epsilon_equality_wins_over_newer() {
         receiver: I,
         sender: K,
         epsilon: 3,
+        rules: Rules::Infotech2011,
+        third_party_ties: true,
     };
 
     assert_eq!(tolerant.decide(claim(K, 5, 7), claim(K, 3, 5)).row, 5);

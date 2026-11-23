@@ -30,7 +30,7 @@
 
 mod table;
 
-pub use table::Claim;
+pub use table::{Claim, Rules};
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -106,6 +106,13 @@ pub struct Agent<V> {
 
     /// Re-announce the whole view every this many ticks; `None` never does.
     announce_every: Option<u64>,
+
+    /// The decision table this agent follows.
+    rules: Rules,
+
+    /// Whether this agent breaks ties between two other winners; see
+    /// [`Agent::with_printed_ties`].
+    third_party_ties: bool,
 }
 
 impl<V: Valuation<TaskId>> Agent<V> {
@@ -124,7 +131,25 @@ impl<V: Valuation<TaskId>> Agent<V> {
             tasks: (0..tasks).map(TaskId).collect(),
             epsilon: 1,
             announce_every: None,
+            rules: Rules::default(),
+            third_party_ties: true,
         }
+    }
+
+    /// This agent, following the decision table `rules`.
+    #[must_use]
+    pub const fn with_rules(mut self, rules: Rules) -> Self {
+        self.rules = rules;
+        self
+    }
+
+    /// This agent, leaving ties between two other winners as the published tables do, in
+    /// rows 9 and 27, instead of giving them to the smaller winner. With integer scores,
+    /// two neighbors that disagree about such a tie can answer each other forever.
+    #[must_use]
+    pub const fn with_printed_ties(mut self) -> Self {
+        self.third_party_ties = false;
+        self
     }
 
     /// This agent, counting times closer than `epsilon` ticks as equal.
@@ -207,6 +232,8 @@ impl<V: Valuation<TaskId>> Agent<V> {
             receiver: self.id,
             sender: message.sender,
             epsilon: self.epsilon,
+            rules: self.rules,
+            third_party_ties: self.third_party_ties,
         };
         let decision = exchange.decide(message.claim, self.claims[task.index()]);
         self.apply(task, decision.change, message.claim, now);
@@ -226,7 +253,25 @@ impl<V: Valuation<TaskId>> Agent<V> {
         match change {
             Change::Update => *held = sent,
             Change::UpdateTime => held.time = now,
-            Change::Reset => *held = Claim::empty_at(now),
+            Change::UpdatePast => {
+                let time = if sent.time > held.time {
+                    sent.time
+                } else {
+                    held.time + self.epsilon
+                };
+                *held = Claim { time, ..sent };
+            }
+            Change::KeepPast => {
+                if held.time <= sent.time {
+                    held.time = sent.time + self.epsilon;
+                }
+            }
+            Change::Reset => {
+                *held = match self.rules {
+                    Rules::Gnc2010 => Claim::NONE,
+                    Rules::Infotech2011 | Rules::Thesis2012 => Claim::empty_at(now),
+                }
+            }
             Change::Leave => {}
         }
     }
@@ -381,7 +426,9 @@ impl<V: Valuation<TaskId>> Participant for Agent<V> {
 
     /// Runs the bundle phase and announces the new bids, plus the whole view when a
     /// re-announcement is due. Of everything queued this round about one task, only the
-    /// last message goes out.
+    /// last message goes out. Under [`Rules::Gnc2010`], a queued claim that names this
+    /// agent for a task it no longer holds is dropped, reading section IV.A of the paper:
+    /// the outgoing messages "accurately represent the state of the current bundle build".
     fn act(&mut self, now: u64, outbox: &mut Vec<Message>) {
         outbox.extend(self.build_bundle(now));
 
@@ -393,6 +440,11 @@ impl<V: Valuation<TaskId>> Participant for Agent<V> {
         }
 
         keep_last_per_task(outbox);
+        if self.rules == Rules::Gnc2010 {
+            outbox.retain(|message| {
+                message.claim.winner != Some(self.id) || self.bundle.contains(&message.task)
+            });
+        }
     }
 
     /// Resolves `message` and rebroadcasts right away.
