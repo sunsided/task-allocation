@@ -15,7 +15,7 @@ use crate::support::{self, Instance, instance_with};
 const MAX_AGENTS: usize = 3;
 
 /// Patience for optimistic bids in the generated runs.
-const OPTIMISM: Optimism = Optimism {
+pub const OPTIMISM: Optimism = Optimism {
     timeout: 4,
     solo_attempts: 2,
     any_attempts: 4,
@@ -23,7 +23,7 @@ const OPTIMISM: Optimism = Optimism {
 
 /// Random activities over `tasks` tasks: consecutive groups of two or three tasks, each
 /// pair dependent one way, both ways, mutually exclusive, or unrelated.
-fn constraints(tasks: usize) -> impl Strategy<Value = Constraints> {
+pub fn constraints(tasks: usize) -> impl Strategy<Value = Constraints> {
     (vec(2_usize..=3, tasks), vec(0_u8..5, tasks * 9)).prop_map(move |(sizes, codes)| {
         let mut constraints = Constraints::new(tasks);
         let mut start = 0;
@@ -107,7 +107,7 @@ pub fn run(
 
 /// The best value of any assignment that meets `constraints` and the capacity, by trying
 /// every holder for every task and every build order of every bundle.
-fn constrained_optimum(instance: &Instance, constraints: &Constraints) -> u64 {
+pub fn constrained_optimum(instance: &Instance, constraints: &Constraints) -> u64 {
     let choices = instance.agents.len() + 1;
     let combinations = (0..instance.tasks).fold(1_usize, |total, _| total * choices);
     let mut best = 0;
@@ -196,7 +196,7 @@ fn best_build(agent: &support::Agent, remaining: &[TaskId], path: &mut Vec<TaskI
 
 /// Checks what a settled CCBBA team promises: constraints met, no conflicts, agreement on
 /// holders and bids, and honest bids.
-fn stable(
+pub fn stable(
     simulation: &Simulation<Agent<support::Agent>>,
     constraints: &Constraints,
 ) -> Result<Assignment, TestCaseError> {
@@ -243,8 +243,9 @@ proptest! {
 /// agent 0 on task 0 whenever task 2 has a winner, but only agent 0's bundle provides task
 /// 2, behind task 0. Losing task 0, agent 0 releases task 2; agent 1 then gives task 0 up,
 /// agent 0 rebuilds both, and the cycle repeats.
-#[test]
-fn coupled_tasks_can_cycle() {
+/// The instance and constraints of [`coupled_tasks_can_cycle`]: two agents over three
+/// tasks, two of which depend on each other while one of them excludes the third.
+pub fn cycling_scenario() -> (Instance, Constraints) {
     let site = |position, duration, deadline| support::Site {
         position,
         duration,
@@ -274,6 +275,12 @@ fn coupled_tasks_can_cycle() {
         )
         .unwrap();
 
+    (instance, constraints)
+}
+
+#[test]
+fn coupled_tasks_can_cycle() {
+    let (instance, constraints) = cycling_scenario();
     let agents = instance
         .agents
         .iter()
