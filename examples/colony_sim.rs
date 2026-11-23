@@ -3,7 +3,9 @@
 //!
 //! The example allocates the jobs three ways and compares them: sequential greedy (one
 //! central pass, the usual game-AI baseline), a sequential auction in deadline order, and
-//! CBBA, where every worker bids from its own view and the colony agrees on bundles. Then a
+//! CBBA, where every worker bids from its own view and the colony agrees on bundles. CBBA
+//! runs once with every worker broadcasting every round, and once with workers that only
+//! broadcast after their view changed; once the colony agrees, the second falls silent. Then a
 //! job appears and a worker leaves, and the colony allocates again; the example counts how
 //! many workers' plans change.
 //!
@@ -20,7 +22,7 @@
 use std::time::Instant;
 
 use task_allocation::auction::sequential;
-use task_allocation::cbba::{Agent, Replan};
+use task_allocation::cbba::{Agent, Cadence, Replan};
 use task_allocation::centralized::sequential_greedy;
 use task_allocation::route::{Route, Timed, rewards};
 use task_allocation::sim::{Network, Simulation};
@@ -136,19 +138,46 @@ fn workers(homes: &[Cell], jobs: &[Job]) -> Vec<Plan> {
 /// Allocates `tasks` jobs among `plans` with CBBA, every worker replanning as `replan` says;
 /// returns the settled assignment and the number of rounds it took.
 fn cbba(plans: &[Plan], tasks: usize, replan: Replan) -> (Assignment, u64) {
+    let (assignment, rounds, _) = cbba_with(plans, tasks, replan, Cadence::EveryRound);
+
+    (assignment, rounds)
+}
+
+/// Allocates `tasks` jobs among `plans` with CBBA, every worker replanning as `replan` says
+/// and broadcasting as `cadence` says; returns the settled assignment, the number of rounds
+/// it took, and the number of messages delivered over 10 more rounds once settled.
+fn cbba_with(
+    plans: &[Plan],
+    tasks: usize,
+    replan: Replan,
+    cadence: Cadence,
+) -> (Assignment, u64, u64) {
     let team = plans.len();
     let agents = plans
         .iter()
         .cloned()
         .enumerate()
-        .map(|(id, plan)| Agent::new(AgentId(id), team, tasks, QUEUE, plan).with_replan(replan))
+        .map(|(id, plan)| {
+            Agent::new(AgentId(id), team, tasks, QUEUE, plan)
+                .with_replan(replan)
+                .with_cadence(cadence)
+        })
         .collect();
     let mut simulation = Simulation::new(agents, Network::default());
     let rounds = simulation
         .run_until_settled(10_000)
         .expect("the colony agrees");
 
-    (simulation.assignment(), rounds)
+    let settled = simulation.stats().delivered;
+    for _ in 0..10 {
+        simulation.step();
+    }
+
+    (
+        simulation.assignment(),
+        rounds,
+        simulation.stats().delivered - settled,
+    )
 }
 
 /// Prints one line per allocation: its name, value, jobs taken and time.
@@ -198,14 +227,25 @@ fn compare(plans: &[Plan], jobs: &[Job]) {
     report("auction by deadline", &auction, started, "");
 
     let started = Instant::now();
-    let (baseline, rounds) = cbba(plans, JOBS, Replan::Keep);
+    let (baseline, rounds, messages) = cbba_with(plans, JOBS, Replan::Keep, Cadence::EveryRound);
     report(
         "CBBA",
         &baseline,
         started,
-        &format!(", settled in {rounds} rounds"),
+        &format!(", settled in {rounds} rounds; then {messages} messages in 10 rounds"),
     );
     assert!(baseline.is_conflict_free());
+
+    let started = Instant::now();
+    let on_change = Cadence::OnChange { refresh: None };
+    let (quiet, rounds, messages) = cbba_with(plans, JOBS, Replan::Keep, on_change);
+    report(
+        "CBBA, on change",
+        &quiet,
+        started,
+        &format!(", settled in {rounds} rounds; then {messages} messages in 10 rounds"),
+    );
+    assert!(quiet.is_conflict_free());
 
     let started = Instant::now();
     let (full, rounds) = cbba(plans, JOBS, Replan::Full);

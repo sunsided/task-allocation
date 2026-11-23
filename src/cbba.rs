@@ -67,11 +67,18 @@
 //! Without replanning, the bundle and consensus phases do not allocate once the bundle has
 //! reached its capacity before, including when the agent is outbid; only building a
 //! [`Message`] does.
+//!
+//! By default every agent broadcasts every round, as published. With
+//! [`Cadence::OnChange`], an agent only broadcasts after its winners or bids changed, so a
+//! team that agrees falls silent; an optional refresh resends the state now and then, for
+//! networks that lose messages or partition.
 
+mod cadence;
 mod dynamic;
 mod message;
 pub(crate) mod table;
 
+pub use cadence::Cadence;
 pub use message::Message;
 
 use alloc::vec;
@@ -155,6 +162,15 @@ pub struct Agent<V> {
 
     /// Whether this agent itself left the team: it holds nothing and stays silent.
     left: bool,
+
+    /// When this agent broadcasts.
+    cadence: Cadence,
+
+    /// The winner tables of this agent's last message; empty before the first.
+    sent: Vec<Claim>,
+
+    /// Rounds since this agent's last message in which it stayed silent.
+    silent_rounds: u64,
 }
 
 /// How much of its bundle an agent releases before each bundle phase, to reconsider it.
@@ -210,6 +226,9 @@ impl<V: Valuation<TaskId>> Agent<V> {
             departed: vec![false; agents],
             retired: vec![false; tasks],
             left: false,
+            cadence: Cadence::EveryRound,
+            sent: Vec::new(),
+            silent_rounds: 0,
         }
     }
 
@@ -373,6 +392,8 @@ impl<V: Valuation<TaskId>> Agent<V> {
     #[must_use]
     pub fn message(&mut self) -> Message {
         self.seen[self.id.index()] += 1;
+        self.sent.clone_from(&self.claims);
+        self.silent_rounds = 0;
 
         Message {
             sender: self.id,

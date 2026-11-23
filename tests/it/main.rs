@@ -4,6 +4,7 @@ mod acbba;
 mod auction;
 mod bundle;
 mod cbba;
+mod cbba_on_change;
 mod ccbba;
 mod ccbba_timed;
 mod centralized;

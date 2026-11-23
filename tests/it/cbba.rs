@@ -198,7 +198,7 @@ fn nobody_can_outbid(
 
 /// Checks everything a settled team promises: no conflicts, agreement on winners and bids,
 /// honest bids, and no agent able to outbid a winner.
-fn stable(
+pub fn stable(
     simulation: &Simulation<Agent<support::Agent>>,
     instance: &Instance,
 ) -> Result<(), TestCaseError> {
