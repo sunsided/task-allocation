@@ -8,5 +8,6 @@ mod cbba_on_change;
 mod ccbba;
 mod ccbba_timed;
 mod centralized;
+mod explore;
 mod support;
 mod valuation;

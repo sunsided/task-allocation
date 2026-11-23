@@ -30,6 +30,7 @@ needs before it can be merged.
 | Command | What it does |
 |---|---|
 | `task test` | Tests (nextest if installed) and doctests |
+| `task test:exhaustive` | The ignored experiments in release mode: deeper schedule exploration and the ACBBA comparison matrix (minutes) |
 | `task lint` | clippy (pedantic), separator ban, README link check, typos, workflow lints |
 | `task fmt` | Format the code |
 | `task doc` | Build the docs, private items included, with warnings as errors |

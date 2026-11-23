@@ -1,6 +1,7 @@
-//! ACBBA over simulated networks. Agents that re-announce periodically settle on stable
-//! assignments, with or without losses and partitions; the published rules alone can go
-//! quiet without agreeing, even without losses.
+//! ACBBA over simulated networks. Runs that settle do so on stable assignments, with or
+//! without losses and partitions. Not every run settles, even with re-announcing and
+//! without losses (about one in ten thousand; see the comparison matrix and issue #33), and
+//! the published rules alone can go quiet without agreeing.
 
 use proptest::prelude::*;
 use task_allocation::acbba::{Agent, Rules};
@@ -117,33 +118,33 @@ pub fn lossless(agents: usize) -> impl Strategy<Value = Network> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
-    /// Without losses, agents that re-announce every ten ticks go quiet in agreement on a
-    /// stable assignment, on complete and sparse topologies.
+    /// Without losses, agents that re-announce every ten ticks and settle do so in agreement
+    /// on a stable assignment, on complete and sparse topologies.
     #[test]
-    fn lossless_runs_settle(
+    fn settled_lossless_runs_are_stable(
         (instance, network) in instance_with(MAX_TEAM).prop_flat_map(|instance| {
             let agents = instance.agents.len();
             (Just(instance), lossless(agents))
         }),
     ) {
         let Some(simulation) = run(&instance, network, Some(10)) else {
-            return Err(TestCaseError::fail("did not settle"));
+            return Ok(());
         };
 
         stable(&simulation, &instance)?;
     }
 
-    /// With losses and partitions, agents that re-announce their view every ten ticks still
-    /// settle on a stable assignment.
+    /// With losses and partitions, agents that re-announce their view every ten ticks and
+    /// settle do so on a stable assignment.
     #[test]
-    fn reannouncing_runs_settle(
+    fn settled_lossy_runs_are_stable(
         (instance, network) in instance_with(MAX_TEAM).prop_flat_map(|instance| {
             let agents = instance.agents.len();
             (Just(instance), network(agents))
         }),
     ) {
         let Some(simulation) = run(&instance, network, Some(10)) else {
-            return Err(TestCaseError::fail("did not settle"));
+            return Ok(());
         };
 
         stable(&simulation, &instance)?;
