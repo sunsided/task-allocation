@@ -135,11 +135,12 @@ pub enum Rules {
     /// as if it were a released bid, and rows 12 and 30 still take any later claim. The
     /// paper only says the winner and bid are cleared. Stamping the reset with the current
     /// time instead gives the same outcomes in the comparison matrix.
-    #[default]
     Gnc2010,
 
     /// Table 1 of the 2011 Infotech@Aerospace paper. A reset forgets the winner and stamps
     /// the entry with the current time, the same empty bid that rows 14 and 16 broadcast.
+    /// The default: of the three, it settles most often in simulation.
+    #[default]
     Infotech2011,
 
     /// Table 4.1 of Johnson's thesis, "Decentralized Task Allocation for Dynamic
