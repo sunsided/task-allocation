@@ -207,10 +207,11 @@ fn the_pinned_cycle_does_not_settle() {
     assert!(tally.unsettled > 0);
 }
 
-/// The same with more instances and deeper bounds; minutes rather than seconds.
+/// The same with more instances and deeper bounds, lossless; minutes rather than seconds.
+/// With a loss as well, three rounds per agent take hours on the three-agent line.
 #[test]
 #[ignore = "exhaustive; run with --ignored"]
 fn deeper_bounds() {
     check_all(Bounds { acts: 3, losses: 0 }, 3);
-    check_all(Bounds { acts: 3, losses: 1 }, 3);
+    check_all(Bounds { acts: 2, losses: 1 }, 3);
 }
