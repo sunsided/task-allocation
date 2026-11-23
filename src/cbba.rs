@@ -57,12 +57,18 @@
 //! [`sim`](crate::sim) runs a team over a simulated network with delays, losses and
 //! partitions.
 //!
+//! A running team can change: [`Agent::add_task`] adds a task to every agent's tables,
+//! [`Agent::retire_task`] withdraws a done or cancelled one, and an agent that
+//! [leaves](Agent::leave) is [forgotten](Agent::forget_agent) by the others. Bundles the
+//! change does not touch stay as they are.
+//!
 //! In a frame-driven loop, such as a game's, [`Agent::with_bundle_budget`] caps the tasks one
 //! bundle phase adds, so a phase's cost fits a frame and a bundle fills over several rounds.
 //! Without replanning, the bundle and consensus phases do not allocate once the bundle has
 //! reached its capacity before, including when the agent is outbid; only building a
 //! [`Message`] does.
 
+mod dynamic;
 mod message;
 pub(crate) mod table;
 
@@ -139,6 +145,16 @@ pub struct Agent<V> {
 
     /// The most tasks one bundle phase adds; `None` for no limit.
     budget: Option<usize>,
+
+    /// For each agent, whether this agent has been told it left the team; its claims are
+    /// void and its messages ignored.
+    departed: Vec<bool>,
+
+    /// For each task, whether it was retired: done or cancelled, never bid on again.
+    retired: Vec<bool>,
+
+    /// Whether this agent itself left the team: it holds nothing and stays silent.
+    left: bool,
 }
 
 /// How much of its bundle an agent releases before each bundle phase, to reconsider it.
@@ -191,6 +207,9 @@ impl<V: Valuation<TaskId>> Agent<V> {
             tasks: (0..tasks).map(TaskId).collect(),
             replan: Replan::Keep,
             budget: None,
+            departed: vec![false; agents],
+            retired: vec![false; tasks],
+            left: false,
         }
     }
 
@@ -366,8 +385,9 @@ impl<V: Valuation<TaskId>> Agent<V> {
     /// tables, and drops the tasks it was outbid on along with every task added after them.
     /// Returns whether this agent's tables or bundle changed.
     ///
-    /// Messages from this agent itself, from agents outside the team, of a different task
-    /// count, or older than what this agent has already seen of the sender are ignored.
+    /// Messages from this agent itself, from agents outside the team or [departed](Agent::forget_agent),
+    /// or older than what this agent has already seen of the sender are ignored. A message
+    /// about fewer or more tasks than this agent knows is merged over the tasks both know.
     pub fn receive(&mut self, message: &Message) -> bool {
         self.receive_with_actions(message, |_, _| {})
             .unwrap_or(false)
@@ -398,13 +418,14 @@ impl<V: Valuation<TaskId>> Agent<V> {
 
         message.sender != self.id
             && sender < self.seen.len()
+            && !self.departed[sender]
             && message.seen.len() == self.seen.len()
-            && message.claims.len() == self.claims.len()
             && message.seen[sender] >= self.seen[sender]
     }
 
-    /// Applies the conflict-resolution table to every task, reporting each action to
-    /// `on_action`; returns whether any claim changed.
+    /// Applies the conflict-resolution table to every task both sides know, reporting each
+    /// action to `on_action`; returns whether any claim changed. Claims of retired tasks and
+    /// of departed agents are voided, however they arrive.
     fn merge_claims(
         &mut self,
         message: &Message,
@@ -417,6 +438,7 @@ impl<V: Valuation<TaskId>> Agent<V> {
             receiver_seen: &self.seen,
         };
 
+        let (departed, retired) = (&self.departed, &self.retired);
         let mut changed = false;
         for (index, (held, &sent)) in self.claims.iter_mut().zip(&message.claims).enumerate() {
             let action = exchange.resolve(sent, *held);
@@ -425,6 +447,8 @@ impl<V: Valuation<TaskId>> Agent<V> {
                 Action::Reset => Claim::NONE,
                 Action::Leave => *held,
             };
+            let void = retired[index] || next.winner.is_some_and(|winner| departed[winner.index()]);
+            let next = if void { Claim::NONE } else { next };
 
             changed |= next != *held;
             *held = next;

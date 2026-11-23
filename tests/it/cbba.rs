@@ -461,3 +461,179 @@ fn blocked_slot_instance() -> Instance {
         capacity: 4,
     }
 }
+
+/// Whether the agents of a team of `agents`, other than `leaving`, can still all reach each
+/// other over `topology`, directly or relayed.
+fn connected_without(topology: &Topology, agents: usize, leaving: AgentId) -> bool {
+    let Topology::Links(links) = topology else {
+        return true;
+    };
+
+    let start = (0..agents).find(|&agent| agent != leaving.index());
+    let Some(start) = start else {
+        return true;
+    };
+
+    let mut reached = vec![false; agents];
+    reached[start] = true;
+    let mut frontier = vec![start];
+    while let Some(agent) = frontier.pop() {
+        for &(a, b) in links {
+            let next = if a.index() == agent {
+                b.index()
+            } else if b.index() == agent {
+                a.index()
+            } else {
+                continue;
+            };
+            if next < agents && next != leaving.index() && !reached[next] {
+                reached[next] = true;
+                frontier.push(next);
+            }
+        }
+    }
+
+    (0..agents)
+        .filter(|&agent| agent != leaving.index())
+        .all(|agent| reached[agent])
+}
+
+/// Whether `before` is a prefix of `after`, comparing bundle order and gains.
+fn grew_from(
+    before: &task_allocation::Bundle<TaskId>,
+    after: &task_allocation::Bundle<TaskId>,
+) -> bool {
+    before.len() <= after.len()
+        && before
+            .entries()
+            .zip(after.entries())
+            .all(|(old, new)| old == new)
+}
+
+/// Checks what a settled team of the agents that did not leave promises: agreement among
+/// them on every winner and winning bid, consistent bundles within capacity, honest bids,
+/// and no agent with room able to outbid.
+fn stable_among_active(
+    simulation: &Simulation<Agent<support::Agent>>,
+    tasks: usize,
+    capacity: usize,
+) -> Result<(), TestCaseError> {
+    let active: Vec<&Agent<support::Agent>> = simulation
+        .agents()
+        .iter()
+        .filter(|agent| !agent.has_left())
+        .collect();
+    let assignment = simulation.assignment();
+    prop_assert!(assignment.is_conflict_free());
+
+    for agent in &active {
+        prop_assert!(agent.is_consistent());
+        for task in (0..tasks).map(TaskId) {
+            let holder = assignment.holder(task);
+            prop_assert_eq!(agent.winner(task), holder);
+
+            let recorded = holder.and_then(|holder| {
+                assignment
+                    .bundle(holder)
+                    .entries()
+                    .find(|(held, _)| **held == task)
+                    .map(|(_, gain)| gain)
+            });
+            prop_assert_eq!(agent.winning_bid(task), recorded.unwrap_or(0));
+        }
+
+        let bundle = agent.bundle();
+        prop_assert!(
+            bundle.len() <= capacity,
+            "{:?} holds {} tasks",
+            agent.id(),
+            bundle.len()
+        );
+        gains_replay(agent.valuation(), bundle)?;
+        if bundle.len() == capacity {
+            continue;
+        }
+
+        for task in (0..tasks).map(TaskId).filter(|task| !bundle.contains(task)) {
+            let Some(insertion) = agent.valuation().best_insertion(bundle.path(), &task) else {
+                continue;
+            };
+
+            let winning = agent.winning_bid(task);
+            let beats = match agent.winner(task) {
+                None => insertion.gain > 0,
+                Some(winner) => {
+                    insertion.gain > winning || (insertion.gain == winning && agent.id() < winner)
+                }
+            };
+            prop_assert!(!beats, "{:?} could outbid on {:?}", agent.id(), task);
+        }
+    }
+
+    Ok(())
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    /// A task added to a settled team is bid on without disturbing anything else: every
+    /// earlier bundle is a prefix of the new one, so only the new task's holder changes plans.
+    #[test]
+    fn added_tasks_disturb_nothing_else((instance, network) in scenario()) {
+        prop_assume!(instance.tasks >= 2);
+        let team = instance.agents.len();
+        let agents = instance
+            .agents
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(id, valuation)| Agent::new(AgentId(id), team, instance.tasks - 1, instance.capacity, valuation))
+            .collect();
+        let healed = network.partitions.iter().map(|partition| partition.until).max().unwrap_or(0);
+        let mut simulation = Simulation::new(agents, network);
+        prop_assert!(simulation.run_until_settled(healed + SETTLE_TICKS).is_some());
+        let before: Vec<_> = simulation.agents().iter().map(|agent| agent.bundle().clone()).collect();
+
+        for agent in simulation.agents_mut() {
+            prop_assert_eq!(agent.add_task(), TaskId(instance.tasks - 1));
+        }
+        prop_assert!(simulation.run_until_settled(SETTLE_TICKS).is_some(), "did not settle again");
+
+        stable_among_active(&simulation, instance.tasks, instance.capacity)?;
+        let mut changed = 0;
+        for (agent, old) in simulation.agents().iter().zip(&before) {
+            prop_assert!(grew_from(old, agent.bundle()), "{:?} lost tasks", agent.id());
+            changed += usize::from(agent.bundle() != old);
+        }
+        prop_assert!(changed <= 1, "{} plans changed", changed);
+    }
+
+    /// When an agent leaves and the others forget it, only its tasks are reallocated: every
+    /// other bundle grows from what it was, and the remaining team settles on a stable
+    /// assignment, as long as the departure does not split the network.
+    #[test]
+    fn departures_only_free_their_tasks((instance, network) in scenario(), leaving in 0_usize..MAX_TEAM) {
+        let leaving = AgentId(leaving % instance.agents.len());
+        // An agent whose departure splits the network leaves the rest unable to agree.
+        prop_assume!(connected_without(&network.topology, instance.agents.len(), leaving));
+        let healed = network.partitions.iter().map(|partition| partition.until).max().unwrap_or(0);
+        let mut simulation = Simulation::new(team(&instance, Replan::Keep), network);
+        prop_assert!(simulation.run_until_settled(healed + SETTLE_TICKS).is_some());
+        let before: Vec<_> = simulation.agents().iter().map(|agent| agent.bundle().clone()).collect();
+
+        for agent in simulation.agents_mut() {
+            if agent.id() == leaving {
+                agent.leave();
+            } else {
+                agent.forget_agent(leaving);
+            }
+        }
+        prop_assert!(simulation.run_until_settled(SETTLE_TICKS).is_some(), "did not settle again");
+
+        stable_among_active(&simulation, instance.tasks, instance.capacity)?;
+        prop_assert!(simulation.agents()[leaving.index()].bundle().is_empty());
+        for (agent, old) in simulation.agents().iter().zip(&before).filter(|(agent, _)| agent.id() != leaving) {
+            prop_assert!(grew_from(old, agent.bundle()), "{:?} lost tasks", agent.id());
+        }
+    }
+}
