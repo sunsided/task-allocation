@@ -85,7 +85,11 @@ fn settles(
         .close(topology, CLOSE_LIMIT)
         .ok_or_else(|| format!("did not settle from {state:?}"))?;
 
-    let simulation = Simulation::new(closing.agents, Network::default());
+    let network = Network {
+        topology: topology.clone(),
+        ..Network::default()
+    };
+    let simulation = Simulation::new(closing.agents, network);
     stable(&simulation, instance).map_err(|error| error.to_string())?;
     if simulation.assignment().value() > best {
         return Err("beat the optimum".into());

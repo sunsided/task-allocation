@@ -132,9 +132,12 @@ where
         self.losses += 1;
     }
 
-    /// A hash of everything that affects what happens next. The time is left out, since
-    /// the agents under exploration ignore it; copies in flight count as a multiset.
-    fn key(&self) -> u64 {
+    /// A 128-bit hash of everything that affects what happens next. The time is left out,
+    /// since the agents under exploration ignore it; copies in flight count as a multiset.
+    /// At ten million states a 64-bit key would collide with a probability of about one in
+    /// four hundred, silently skipping a state; 128 bits make that negligible, while keeping
+    /// the rendered states themselves would not fit in memory.
+    fn key(&self) -> u128 {
         let mut copies: Vec<String> = self
             .in_flight
             .iter()
@@ -146,9 +149,14 @@ where
             self.agents, self.outboxes, self.acts, self.losses
         );
 
-        let mut hasher = DefaultHasher::new();
-        rendered.hash(&mut hasher);
-        hasher.finish()
+        let half = |salt: u8| {
+            let mut hasher = DefaultHasher::new();
+            salt.hash(&mut hasher);
+            rendered.hash(&mut hasher);
+            hasher.finish()
+        };
+
+        (u128::from(half(0)) << 64) | u128::from(half(1))
     }
 
     /// Every state one event after this one, within `bounds`.
