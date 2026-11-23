@@ -22,10 +22,10 @@ use colony::{JOBS, Plan, QUEUE, WARM_UP_ROUNDS, WORKERS, colony, negotiation};
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
 /// The most allocations a round mid negotiation may make.
-const BUSY_BUDGET: usize = 290;
+const BUSY_BUDGET: usize = 230;
 
 /// The most allocations a round of a settled team may make.
-const SETTLED_BUDGET: usize = 225;
+const SETTLED_BUDGET: usize = 165;
 
 /// The allocations and bytes of one round of `simulation`.
 fn allocations_of_one_round(simulation: &mut Simulation<Agent<Plan>>) -> (usize, usize) {

@@ -185,3 +185,22 @@ fn replanning_rebuilds_released_tasks() {
     assert_eq!(bundle_of(&full), [0, 1, 2]);
     assert!(!keep.can_bid() && !last.can_bid() && !full.can_bid());
 }
+
+/// A bundle budget caps the tasks one bundle phase adds, and the bundle fills over rounds.
+#[test]
+fn bundle_budget_spreads_the_phase() {
+    let mut budgeted = agent(0, 1, 3, &[9, 8, 7]).with_bundle_budget(2);
+
+    assert_eq!(budgeted.build_bundle(), 2);
+    assert!(budgeted.can_bid());
+    assert_eq!(budgeted.build_bundle(), 1);
+    assert_eq!(bundle_of(&budgeted), [0, 1, 2]);
+    assert!(!budgeted.can_bid());
+}
+
+/// A budget that allows no task is a caller bug.
+#[test]
+#[should_panic(expected = "allowed to add a task")]
+fn zero_bundle_budget_panics() {
+    let _ = agent(0, 1, 1, &[1]).with_bundle_budget(0);
+}
