@@ -1,18 +1,25 @@
 //! Asynchronous CBBA (ACBBA): agents build bundles and resolve conflicts on their own
 //! schedule, exchanging one task at a time, and only pass on what is new.
 //!
+//! **Experimental: ACBBA does not settle reliably.** None of the published decision
+//! tables settles every run, even on a network that loses nothing. With the default
+//! 2011 table, about 1 in 1,000 simulated runs on sparse networks never goes quiet, as a
+//! bid an agent has released outlives the release. For dependable results, use
+//! [`cbba`](crate::cbba), which tolerates delayed, lost and reordered messages too.
+//!
 //! Each agent keeps, for every task, the winner it believes in, the winning bid, and the time
 //! that bid was made. Its bundle phase bids as in [CBBA](crate::cbba) and announces each new
-//! bid. Every arriving [`Message`] is resolved with the deconfliction table of Johnson, Ponda,
-//! Choi and How, "Asynchronous Decentralized Task Allocation for Dynamic Environments" (AIAA
-//! Infotech@Aerospace 2011), which also decides what to rebroadcast: the receiver's own
-//! entry, the sender's, an empty bid, or nothing. When the network has nothing new left to
-//! say, it goes quiet.
+//! bid. Every arriving [`Message`] is resolved with a deconfliction table by Johnson, Ponda,
+//! Choi and How, which also decides what to rebroadcast: the receiver's own entry, the
+//! sender's, an empty bid, or nothing. When the network has nothing new left to say, it
+//! goes quiet. The authors published three revisions of the table, which differ; an agent
+//! follows the one [`Rules`] names, by default the 2011 one from "Asynchronous
+//! Decentralized Task Allocation for Dynamic Environments" (AIAA Infotech@Aerospace 2011).
 //!
 //! Bid times come from a clock all agents share, passed in as `now`; timestamps of different
 //! agents are compared directly. [`sim`](crate::sim) uses its tick.
 //!
-//! Choices this implementation makes where the paper is silent:
+//! Choices this implementation makes where the papers are silent:
 //!
 //! - The bundle phase announces each task it adds, as the agent's own entry.
 //! - An agent outbid on a task releases it and every task added after it, as in CBBA, and

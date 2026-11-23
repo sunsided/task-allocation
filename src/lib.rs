@@ -19,8 +19,9 @@
 //!   agrees on a conflict-free assignment.
 //! - [`ccbba`]: CBBA for coupled tasks that need or exclude each other, optionally with
 //!   timing limits between their starts on timed routes.
-//! - [`acbba`]: asynchronous CBBA. Agents bid and resolve conflicts on their own schedule,
-//!   one task per message, and only pass on what is new.
+//! - [`acbba`]: asynchronous CBBA, experimental. Agents bid and resolve conflicts on their
+//!   own schedule, one task per message, and only pass on what is new; it does not settle
+//!   reliably yet.
 //! - [`sim`]: a deterministic simulated network with delays, losses and partitions, to run
 //!   teams on.
 //! - [`auction`]: auction baselines with a central auctioneer: sequential single-item
