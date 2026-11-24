@@ -78,12 +78,13 @@ fn small_teams_settle_from_every_schedule() {
     check_all(3, 2, &line(), 1, 3);
 }
 
-/// More instances, more tasks and more rounds; minutes rather than seconds.
+/// More instances, more tasks and more rounds; about 40 minutes. One instance of three
+/// agents on a complete network over three tasks alone has 9.4 million states.
 #[test]
 #[ignore = "exhaustive; run with --ignored"]
 fn deeper_bounds() {
     check_all(2, 3, &Topology::Complete, 3, 20);
     check_all(3, 2, &line(), 2, 20);
     check_all(3, 3, &line(), 2, 10);
-    check_all(3, 3, &Topology::Complete, 2, 10);
+    check_all(3, 3, &Topology::Complete, 2, 1);
 }
