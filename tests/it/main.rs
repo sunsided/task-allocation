@@ -3,6 +3,7 @@
 mod acbba;
 mod auction;
 mod bundle;
+mod bwtc;
 mod cbba;
 mod cbba_on_change;
 mod ccbba;

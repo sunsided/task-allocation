@@ -22,6 +22,9 @@
 //! - [`acbba`]: asynchronous CBBA, experimental. Agents bid and resolve conflicts on their
 //!   own schedule, one task per message, and only pass on what is new; it does not settle
 //!   reliably yet.
+//! - [`bwtc`]: the task consensus of bid-warped CBBA, experimental. Agents announce what
+//!   changed, withdrawals included, with a timestamp per bidder and task, so a withdrawn
+//!   bid cannot come back; for networks that deliver every message.
 //! - [`sim`]: a deterministic simulated network with delays, losses and partitions, to run
 //!   teams on.
 //! - [`auction`]: auction baselines with a central auctioneer: sequential single-item
@@ -74,6 +77,7 @@ pub mod acbba;
 mod assignment;
 pub mod auction;
 mod bundle;
+pub mod bwtc;
 pub mod cbba;
 pub mod ccbba;
 pub mod centralized;
