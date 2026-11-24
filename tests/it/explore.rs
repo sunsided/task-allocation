@@ -10,6 +10,7 @@
 //! The seam mirrors the simulator's: what an agent produces while receiving waits in its
 //! outbox, and goes out, together with what its next round adds, when that round ends.
 
+mod acbba;
 mod cbba;
 mod ccbba;
 
@@ -53,6 +54,9 @@ pub struct State<A: Participant> {
 
     /// Events so far, passed to the agents as the current time.
     now: u64,
+
+    /// The events that led here, in order; not part of the state's identity.
+    pub trace: Vec<String>,
 }
 
 /// What exploring found.
@@ -78,6 +82,7 @@ where
             acts: self.acts.clone(),
             losses: self.losses,
             now: self.now,
+            trace: self.trace.clone(),
         }
     }
 }
@@ -98,6 +103,7 @@ where
             acts: vec![0; team],
             losses: 0,
             now: 0,
+            trace: Vec::new(),
         }
     }
 
@@ -167,18 +173,24 @@ where
             if self.acts[agent] < bounds.acts {
                 let mut state = self.clone();
                 state.act(agent, topology);
+                state.trace.push(format!("agent {agent} runs a round"));
                 next.push(state);
             }
         }
 
         for index in 0..self.in_flight.len() {
+            let (to, message) = &self.in_flight[index];
+            let copy = format!("{message:?} to agent {}", to.index());
+
             let mut delivered = self.clone();
             delivered.deliver(index);
+            delivered.trace.push(format!("deliver {copy}"));
             next.push(delivered);
 
             if self.losses < bounds.losses {
                 let mut lost = self.clone();
                 lost.lose(index);
+                lost.trace.push(format!("lose {copy}"));
                 next.push(lost);
             }
         }
