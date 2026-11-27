@@ -12,5 +12,6 @@ mod ccbba_timed;
 mod centralized;
 mod explore;
 mod local_settle;
+mod scenarios;
 mod support;
 mod valuation;
