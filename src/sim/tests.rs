@@ -3,7 +3,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::{Network, Partition, Simulation, Topology};
+use super::{Clusters, Network, Partition, Simulation, Topology};
 use crate::cbba::Agent;
 use crate::centralized::sequential_greedy;
 use crate::id::{AgentId, TaskId};
@@ -54,6 +54,8 @@ fn runs_are_reproducible() {
         loss_per_mille: 300,
         topology: Topology::Complete,
         partitions: Vec::new(),
+        collisions: false,
+        clusters: None,
     };
     let mut first = Simulation::new(team(3, 6, 2), network.clone());
     let mut second = Simulation::new(team(3, 6, 2), network);
@@ -186,4 +188,74 @@ fn useful_copies_stop_once_settled() {
 
     assert!(simulation.stats().delivered > settled.delivered);
     assert_eq!(simulation.stats().useful, settled.useful);
+}
+
+/// A line 0–1–2 with collisions on or off, seed 3.
+fn line(collisions: bool) -> Network {
+    Network {
+        seed: 3,
+        topology: Topology::Links(vec![(AgentId(0), AgentId(1)), (AgentId(1), AgentId(2))]),
+        collisions,
+        ..Network::default()
+    }
+}
+
+/// Agents 0 and 2 of a line cannot hear each other, so broadcasting every tick they
+/// sometimes pick the same backoff slot and collide at agent 1; with collisions off, or on
+/// a complete network, nothing collides.
+#[test]
+fn hidden_senders_collide() {
+    let mut hidden = Simulation::new(team(3, 6, 2), line(true));
+    let mut plain = Simulation::new(team(3, 6, 2), line(false));
+    let mut complete = Simulation::new(
+        team(3, 6, 2),
+        Network {
+            collisions: true,
+            ..Network::default()
+        },
+    );
+    for _ in 0..100 {
+        hidden.step();
+        plain.step();
+        complete.step();
+    }
+
+    assert!(hidden.stats().collided > 0);
+    assert_eq!(plain.stats().collided, 0);
+    assert_eq!(complete.stats().collided, 0);
+}
+
+/// A copy between clusters that exchange every 5 ticks, sent at tick 0, would arrive at
+/// tick 1 but waits for tick 5.
+#[test]
+fn clusters_exchange_on_their_period() {
+    let network = Network {
+        clusters: Some(Clusters {
+            groups: vec![0, 1],
+            period: 5,
+        }),
+        ..Network::default()
+    };
+    let mut simulation = Simulation::new(team(2, 2, 1), network);
+    for _ in 0..5 {
+        simulation.step();
+    }
+    assert_eq!(simulation.stats().delivered, 0);
+
+    simulation.step();
+    assert!(simulation.stats().delivered > 0);
+}
+
+/// A cluster period of zero would never deliver across clusters.
+#[test]
+#[should_panic(expected = "positive number of ticks")]
+fn cluster_period_must_be_positive() {
+    let network = Network {
+        clusters: Some(Clusters {
+            groups: vec![0, 1],
+            period: 0,
+        }),
+        ..Network::default()
+    };
+    let _ = Simulation::new(team(2, 2, 1), network);
 }

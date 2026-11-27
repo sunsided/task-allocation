@@ -112,6 +112,8 @@ pub fn lossless(agents: usize) -> impl Strategy<Value = Network> {
         loss_per_mille: 0,
         topology,
         partitions: Vec::new(),
+        collisions: false,
+        clusters: None,
     })
 }
 
