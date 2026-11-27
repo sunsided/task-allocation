@@ -228,9 +228,10 @@ fn example2_settles_with_warping() {
     assert!(simulation.agents()[1].bundle().is_empty());
 }
 
-/// Example 2 without warping settles here too, unlike in the paper: an agent outbid on its
-/// first task also forgets its own bid on the second, so agent 1 stops defending task 1 at
-/// `T + δ` and agent 0 takes both, bidding more on its second task than on its first.
+/// Example 2 without warping settles here too, unlike the paper's cycle, with agent 0
+/// holding both tasks and bidding more on its second task than on its first. CBBA's
+/// consensus differs from the paper's information model; the two-courier cycle below is
+/// the regression that does cycle here.
 #[test]
 fn example2_settles_without_warping_with_growing_bids() {
     let mut simulation = Simulation::new(example2(false), Network::default());
