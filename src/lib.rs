@@ -83,6 +83,7 @@ pub mod cbba;
 pub mod ccbba;
 pub mod centralized;
 mod id;
+mod quiet;
 pub mod route;
 pub mod sim;
 mod valuation;

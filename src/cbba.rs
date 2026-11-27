@@ -91,6 +91,7 @@ use alloc::vec::Vec;
 
 use crate::bundle::Bundle;
 use crate::id::{AgentId, TaskId};
+use crate::quiet::Quiet;
 use crate::valuation::{Insertion, Valuation};
 pub(crate) use table::Action;
 use table::{Claim, Exchange};
@@ -180,6 +181,9 @@ pub struct Agent<V> {
     /// Whether this agent [warps its bids](Agent::with_bid_warping), so that they never
     /// grow along its bundle.
     warping: bool,
+
+    /// How many bundle phases in a row this agent's winner tables stayed the same.
+    quiet: Quiet<Claim>,
 }
 
 /// How much of its bundle an agent releases before each bundle phase, to reconsider it.
@@ -239,6 +243,7 @@ impl<V: Valuation<TaskId>> Agent<V> {
             sent: Vec::new(),
             silent_rounds: 0,
             warping: false,
+            quiet: Quiet::new(core::iter::repeat_n(Claim::NONE, tasks)),
         }
     }
 
@@ -297,7 +302,17 @@ impl<V: Valuation<TaskId>> Agent<V> {
     /// agent [warps its bids](Agent::with_bid_warping), and this agent becomes its winner in
     /// its own tables. With [`Replan::Keep`], the bundle grows in place, without allocating once
     /// the bundle has reached its capacity before.
+    ///
+    /// Each call counts as a round for [`quiet_rounds`](Agent::quiet_rounds).
     pub fn build_bundle(&mut self) -> usize {
+        let added = self.bundle_phase();
+        self.quiet.observe(self.claims.iter().copied());
+
+        added
+    }
+
+    /// The bundle phase proper, as [`build_bundle`](Agent::build_bundle) describes it.
+    fn bundle_phase(&mut self) -> usize {
         if self.replan == Replan::Keep {
             let limit = self.limit(self.bundle.len());
             let Self {
@@ -652,6 +667,30 @@ impl<V> Agent<V> {
     /// The winner and winning bid this agent believes in for every task, in task order.
     pub(crate) fn claims(&self) -> &[Claim] {
         &self.claims
+    }
+
+    /// How many bundle phases in a row this agent's winners and bids stayed the same,
+    /// counting changes from messages, team changes and its own bids.
+    #[must_use]
+    pub const fn quiet_rounds(&self) -> u64 {
+        self.quiet.rounds()
+    }
+
+    /// This agent's own guess that the team has settled: its winners and bids stayed the
+    /// same for at least `span` bundle phases, the *separation time* of ACBBA's sources
+    /// (Johnson's 2012 MS thesis, pp. 82–84).
+    ///
+    /// Unlike [`Participant::is_settled`](crate::sim::Participant::is_settled), which sees
+    /// the whole team and every message in flight, this needs nothing but the agent, so a
+    /// deployed agent can use it. It is a heuristic and can be wrong both ways. A lost
+    /// message, a partition or a slow relay looks just like agreement, so it can report
+    /// settled too early; Rantanen et al. (IEEE SAM 2018) found ACBBA agents taking lost
+    /// packets for consensus. And it waits out the whole span after the team agreed. A
+    /// safe span exceeds the longest time news takes to cross the network, which grows with
+    /// its diameter, delays and losses.
+    #[must_use]
+    pub const fn is_locally_settled(&self, span: u64) -> bool {
+        self.quiet.rounds() >= span
     }
 
     /// Whether this agent's bundle holds exactly the tasks it believes it wins.

@@ -44,6 +44,7 @@ use alloc::vec::Vec;
 
 use crate::bundle::Bundle;
 use crate::id::{AgentId, TaskId};
+use crate::quiet::Quiet;
 use crate::sim::Participant;
 use crate::valuation::Valuation;
 use table::{Broadcast, Change, Exchange};
@@ -120,6 +121,10 @@ pub struct Agent<V> {
     /// Whether this agent breaks ties between two other winners; see
     /// [`Agent::with_printed_ties`].
     third_party_ties: bool,
+
+    /// How many bundle phases in a row this agent's winners and bids stayed the same; bid
+    /// times are left out, since re-announcements move them without changing anything.
+    quiet: Quiet<(Option<AgentId>, u64)>,
 }
 
 impl<V: Valuation<TaskId>> Agent<V> {
@@ -140,6 +145,7 @@ impl<V: Valuation<TaskId>> Agent<V> {
             announce_every: None,
             rules: Rules::default(),
             third_party_ties: true,
+            quiet: Quiet::new(core::iter::repeat_n((None, 0), tasks)),
         }
     }
 
@@ -188,7 +194,18 @@ impl<V: Valuation<TaskId>> Agent<V> {
     /// The bundle phase at time `now`: adds the most valuable tasks this agent can win until
     /// its bundle is full or nothing is left to win, and returns the announcements of the
     /// new bids.
+    ///
+    /// Each call counts as a round for [`quiet_rounds`](Agent::quiet_rounds).
     pub fn build_bundle(&mut self, now: u64) -> Vec<Message> {
+        let announcements = self.bundle_phase(now);
+        self.quiet
+            .observe(self.claims.iter().map(|claim| (claim.winner, claim.bid)));
+
+        announcements
+    }
+
+    /// The bundle phase proper, as [`build_bundle`](Agent::build_bundle) describes it.
+    fn bundle_phase(&mut self, now: u64) -> Vec<Message> {
         let id = self.id;
         let claims = &self.claims;
         let before = self.bundle.len();
@@ -209,6 +226,22 @@ impl<V: Valuation<TaskId>> Agent<V> {
         }
 
         announcements
+    }
+
+    /// How many bundle phases in a row this agent's winners and bids stayed the same; bid
+    /// times alone do not count as a change.
+    #[must_use]
+    pub const fn quiet_rounds(&self) -> u64 {
+        self.quiet.rounds()
+    }
+
+    /// This agent's own guess that the team has settled: its winners and bids stayed the
+    /// same for at least `span` bundle phases, the *separation time* of the 2011 paper
+    /// (pp. 8–9). A heuristic that can be wrong both ways; see
+    /// [`cbba::Agent::is_locally_settled`](crate::cbba::Agent::is_locally_settled).
+    #[must_use]
+    pub const fn is_locally_settled(&self, span: u64) -> bool {
+        self.quiet.rounds() >= span
     }
 
     /// Whether the bundle phase would add a task now.
