@@ -5,6 +5,7 @@
 mod gaca;
 mod margin;
 mod precedence;
+mod transport;
 
 use task_allocation::TaskId;
 use task_allocation::sim::{Participant, Simulation};
