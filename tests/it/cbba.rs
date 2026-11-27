@@ -5,7 +5,7 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use task_allocation::cbba::{Agent, Replan};
 use task_allocation::centralized::optimal;
-use task_allocation::sim::{Network, Partition, Simulation, Topology};
+use task_allocation::sim::{Clusters, Network, Partition, Simulation, Topology};
 use task_allocation::{AgentId, Assignment, TaskId, Valuation};
 
 use crate::bundle::gains_replay;
@@ -47,25 +47,35 @@ pub fn topology(agents: usize) -> impl Strategy<Value = Topology> {
     prop_oneof![Just(Topology::Complete), sparse]
 }
 
-/// A network with up to 5 ticks of extra delay, up to 50% loss, a connected topology, and
-/// up to three partitions.
+/// A network with up to 5 ticks of extra delay, up to 50% loss, a connected topology, up
+/// to three partitions, collisions between hidden senders or not, and clusters that talk
+/// with each other only every few ticks or not.
 pub fn network(agents: usize) -> impl Strategy<Value = Network> {
     (
-        any::<u64>(),
-        0_u64..=5,
-        0_u16..=500,
+        (any::<u64>(), 0_u64..=5, 0_u16..=500),
         topology(agents),
         vec(partition(agents), 0..=3),
+        any::<bool>(),
+        proptest::option::of(clusters(agents)),
     )
         .prop_map(
-            |(seed, max_delay, loss_per_mille, topology, partitions)| Network {
-                seed,
-                max_delay,
-                loss_per_mille,
-                topology,
-                partitions,
+            |((seed, max_delay, loss_per_mille), topology, partitions, collisions, clusters)| {
+                Network {
+                    seed,
+                    max_delay,
+                    loss_per_mille,
+                    topology,
+                    partitions,
+                    collisions,
+                    clusters,
+                }
             },
         )
+}
+
+/// Up to three clusters of `agents` agents that exchange messages every 1 to 8 ticks.
+fn clusters(agents: usize) -> impl Strategy<Value = Clusters> {
+    (vec(0_usize..3, agents), 1_u64..=8).prop_map(|(groups, period)| Clusters { groups, period })
 }
 
 /// An instance of up to [`MAX_TEAM`] agents together with a network for them.

@@ -19,6 +19,11 @@
 //! other. Agents process the messages that arrive in a tick in arrival order. Everything
 //! random comes from [`Network::seed`]: the same seed gives the same run.
 //!
+//! Two optional models make the network harsher: [`Network::collisions`] lets senders
+//! that cannot hear each other destroy each other's copies, and [`Network::clusters`]
+//! lets groups of agents exchange messages with each other only every few ticks. Both are
+//! off by default and draw no randomness then, so seeded runs stay the same.
+//!
 //! [`Stats`] counts what the run cost: copies sent, delivered and lost, the bytes
 //! broadcast, and how many delivered copies changed their receiver.
 //!
@@ -57,6 +62,49 @@ pub struct Network {
 
     /// Intervals in which groups of agents cannot reach each other.
     pub partitions: Vec<Partition>,
+
+    /// Whether broadcasts from hidden nodes collide.
+    ///
+    /// Each tick, every sender waits a random backoff of one of [`BACKOFF_SLOTS`] slots
+    /// before transmitting, as 802.11 radios do. Two senders that cannot hear each other
+    /// and pick the same slot lose both their copies to every agent that hears them both.
+    /// Senders that hear each other take turns, as radios sensing the channel do, so on a
+    /// [`Topology::Complete`] network nothing collides. This follows the hidden-node
+    /// picture in Raja, Habibi and How (IEEE Access 10, 2022, p. 19756), with their
+    /// contention window of 16.
+    pub collisions: bool,
+
+    /// Clusters that talk among themselves every tick, but with each other only every
+    /// few ticks; `None` for one rate everywhere.
+    pub clusters: Option<Clusters>,
+}
+
+/// The backoff slots a sender picks from each tick when [`Network::collisions`] is on.
+pub const BACKOFF_SLOTS: u64 = 16;
+
+/// Groups of agents that exchange messages at different rates: inside a group as usual,
+/// between groups only every `period` ticks.
+///
+/// A copy between groups arrives at the first multiple of `period` at or after the tick it
+/// would otherwise arrive at. This is the multirate idea of hierarchical co-simulation
+/// (Hafner, *Cooperative and Multirate Simulation Analysis*, TU Wien, 2021): tightly
+/// coupled parts synchronize often, the whole less often.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Clusters {
+    /// The group of each agent, indexed by agent. Agents missing from the list form a group
+    /// of their own each.
+    pub groups: Vec<usize>,
+
+    /// Ticks between two exchanges across groups; positive. One changes nothing.
+    pub period: u64,
+}
+
+/// Whether `a` and `b` are in the same group of `groups`, where agents missing from the
+/// list form a group of their own each.
+fn same_group(groups: &[usize], a: AgentId, b: AgentId) -> bool {
+    groups
+        .get(a.index())
+        .is_some_and(|group| groups.get(b.index()) == Some(group))
 }
 
 /// Which pairs of agents can exchange messages directly. Agents without a direct link only
@@ -102,11 +150,7 @@ impl Partition {
     pub fn separates(&self, tick: u64, a: AgentId, b: AgentId) -> bool {
         let active = (self.from..self.until).contains(&tick);
 
-        active
-            && self
-                .groups
-                .get(a.index())
-                .is_none_or(|group| self.groups.get(b.index()) != Some(group))
+        active && !same_group(&self.groups, a, b)
     }
 }
 
@@ -144,6 +188,10 @@ pub struct Stats {
     /// reached at least one receiver: on a shared radio channel, one transmission reaches
     /// every neighbor.
     pub bytes: u64,
+
+    /// Copies lost to [collisions](Network::collisions) between hidden senders; also
+    /// counted in `sent`, not in `lost`.
+    pub collided: u64,
 }
 
 /// An agent that a [`Simulation`] can run: it works in rounds, broadcasts messages, and
@@ -326,7 +374,8 @@ impl<A: Participant> Simulation<A> {
     ///
     /// # Panics
     ///
-    /// Panics when the agents are not identified `0..agents.len()` in order.
+    /// Panics when the agents are not identified `0..agents.len()` in order, and when the
+    /// network's [`Clusters::period`] is zero.
     #[must_use]
     pub fn new(agents: Vec<A>, network: Network) -> Self {
         let in_order = agents
@@ -334,6 +383,13 @@ impl<A: Participant> Simulation<A> {
             .enumerate()
             .all(|(index, agent)| agent.id() == AgentId(index));
         assert!(in_order, "agents must be identified 0, 1, 2, ... in order");
+        assert!(
+            network
+                .clusters
+                .as_ref()
+                .is_none_or(|clusters| clusters.period > 0),
+            "clusters must exchange messages every positive number of ticks"
+        );
 
         let rng = SplitMix64::new(network.seed);
 
@@ -418,12 +474,16 @@ impl<A: Participant> Simulation<A> {
     /// Broadcasts every message in every agent's outbox, leaving the outboxes empty.
     fn broadcast_all(&mut self, outboxes: &mut [Vec<A::Message>]) {
         let agents = self.agents.len();
+        let slots = self.backoff_slots(outboxes);
+
         for (sender, outbox) in outboxes.iter_mut().enumerate() {
             for message in outbox.drain(..) {
                 let message = Rc::new(message);
                 let mut transmitted = false;
                 for receiver in (0..agents).filter(|&receiver| receiver != sender) {
-                    transmitted |= self.send(AgentId(sender), AgentId(receiver), &message);
+                    let (from, to) = (AgentId(sender), AgentId(receiver));
+                    let collides = self.collides(&slots, from, to);
+                    transmitted |= self.send(from, to, &message, collides);
                 }
 
                 if transmitted {
@@ -433,15 +493,59 @@ impl<A: Participant> Simulation<A> {
         }
     }
 
-    /// Sends one copy of `message` from `from` to `to`, unless a partition blocks it or the
-    /// network loses it; returns whether the copy went on the air, lost or not.
-    fn send(&mut self, from: AgentId, to: AgentId, message: &Rc<A::Message>) -> bool {
+    /// Each agent's backoff slot this tick, `None` when it sends nothing; empty when
+    /// [collisions](Network::collisions) are off, so that no randomness is drawn.
+    fn backoff_slots(&mut self, outboxes: &[Vec<A::Message>]) -> Vec<Option<u64>> {
+        if !self.network.collisions {
+            return Vec::new();
+        }
+
+        outboxes
+            .iter()
+            .map(|outbox| (!outbox.is_empty()).then(|| self.rng.below(BACKOFF_SLOTS)))
+            .collect()
+    }
+
+    /// Whether the copy from `from` to `to` collides this tick: another sender in the same
+    /// backoff slot reaches `to` but cannot hear `from`. Empty `slots` means collisions are
+    /// off.
+    fn collides(&self, slots: &[Option<u64>], from: AgentId, to: AgentId) -> bool {
+        let Some(&Some(slot)) = slots.get(from.index()) else {
+            return false;
+        };
+
+        slots.iter().enumerate().any(|(other, &other_slot)| {
+            let other = AgentId(other);
+
+            other_slot == Some(slot)
+                && other != from
+                && other != to
+                && !self.is_cut_off(other, to)
+                && self.is_cut_off(from, other)
+        })
+    }
+
+    /// Sends one copy of `message` from `from` to `to`, unless a partition blocks it, it
+    /// `collides` with a hidden sender's, or the network loses it; returns whether the copy
+    /// went on the air, lost or not.
+    fn send(
+        &mut self,
+        from: AgentId,
+        to: AgentId,
+        message: &Rc<A::Message>,
+        collides: bool,
+    ) -> bool {
         if self.is_cut_off(from, to) {
             self.stats.blocked += 1;
             return false;
         }
 
         self.stats.sent += 1;
+        if collides {
+            self.stats.collided += 1;
+            return true;
+        }
+
         if self.rng.below(1000) < u64::from(self.network.loss_per_mille) {
             self.stats.lost += 1;
             return true;
@@ -449,7 +553,7 @@ impl<A: Participant> Simulation<A> {
 
         let delay = 1 + self.rng.below(self.network.max_delay.saturating_add(1));
         self.in_flight.push(InFlight {
-            arrives: self.tick + delay,
+            arrives: self.arrival(from, to, self.tick + delay),
             order: self.next_order,
             to,
             message: Rc::clone(message),
@@ -457,6 +561,17 @@ impl<A: Participant> Simulation<A> {
         self.next_order += 1;
 
         true
+    }
+
+    /// When a copy from `from` to `to` that would arrive at `tick` does arrive: then, or,
+    /// between [clusters](Network::clusters), at the next exchange across them.
+    fn arrival(&self, from: AgentId, to: AgentId, tick: u64) -> u64 {
+        match &self.network.clusters {
+            Some(clusters) if !same_group(&clusters.groups, from, to) => {
+                tick.div_ceil(clusters.period) * clusters.period
+            }
+            _ => tick,
+        }
     }
 
     /// Whether `a` and `b` have no direct link, or an active partition separates them now.
