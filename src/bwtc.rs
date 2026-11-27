@@ -350,17 +350,30 @@ impl<V: Valuation<TaskId>> Agent<V> {
     }
 
     /// Records `gain` as `bidder`'s latest bid on `task`, or `None` for none.
+    ///
+    /// # Panics
+    ///
+    /// Panics on an unknown task or a bidder outside the team; callers check packet
+    /// entries with [`stamp_mut`](Self::stamp_mut) first.
     fn set_gain(&mut self, bidder: AgentId, task: TaskId, gain: Option<u64>) {
         let tasks = self.tasks.len();
         self.gains[bidder.index() * tasks + task.index()] = gain;
     }
 
     /// The latest time this agent has seen of `bidder` on `task`.
+    ///
+    /// # Panics
+    ///
+    /// Panics on an unknown task or a bidder outside the team.
     fn stamp(&self, bidder: AgentId, task: TaskId) -> u64 {
         self.stamps[bidder.index() * self.tasks.len() + task.index()]
     }
 
     /// Records `time` as the latest time seen of `bidder` on `task`.
+    ///
+    /// # Panics
+    ///
+    /// Panics on an unknown task or a bidder outside the team.
     fn set_stamp(&mut self, bidder: AgentId, task: TaskId, time: u64) {
         let tasks = self.tasks.len();
         self.stamps[bidder.index() * tasks + task.index()] = time;

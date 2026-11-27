@@ -245,6 +245,9 @@ fn runner_up_bids_are_announced_with_the_drop() {
 
 /// The comparison matrix's lossless cases, ACBBA's failures among them, all settle on
 /// stable assignments under BW-TC. Run with `ACBBA_CASES=20000`; the default is 500.
+///
+/// The cases are the matrix's own: `table_matrix` draws them from the same strategy with
+/// the same deterministic runner, one tree per case, so both see the same sequence.
 #[test]
 #[ignore = "an experiment; run on demand"]
 fn matrix_cases_settle() {

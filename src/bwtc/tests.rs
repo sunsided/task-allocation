@@ -123,3 +123,43 @@ fn retaken_tasks_stay_consistent() {
 
     assert!(agent.is_consistent());
 }
+
+/// A bid dropped and placed again with the same gain is announced anew with a later time,
+/// so receivers take it back while stale copies of the bid and its drop stay ignored.
+#[test]
+fn rebids_with_the_same_gain_are_announced_anew() {
+    let mut bidder = agent(0, 1, &[9]);
+    bidder.build_bundle(0);
+    let _ = bidder.packet();
+    bidder.receive(&packet(1, vec![bid(0, 1, 20, 4)]));
+    bidder.build_bundle(1);
+    let _ = bidder.packet();
+
+    let withdrawal = Entry::Drop {
+        task: TaskId(0),
+        bidder: AgentId(1),
+        time: 7,
+    };
+    bidder.receive(&packet(1, vec![withdrawal]));
+    bidder.build_bundle(4);
+    let entries = bidder.packet().expect("queued").entries;
+    assert!(entries.contains(&bid(0, 0, 9, 10)));
+
+    let drop = Entry::Drop {
+        task: TaskId(0),
+        bidder: AgentId(0),
+        time: 3,
+    };
+    let mut relay = agent(2, 1, &[0]);
+    relay.receive(&packet(0, vec![bid(0, 0, 9, 2), drop]));
+    relay.receive(&packet(0, vec![bid(0, 0, 9, 10)]));
+    relay.receive(&packet(1, vec![bid(0, 0, 9, 2), drop]));
+
+    assert_eq!(
+        relay.best(TaskId(0)),
+        Some(Bid {
+            bidder: AgentId(0),
+            gain: 9,
+        })
+    );
+}
