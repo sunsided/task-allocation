@@ -4,6 +4,7 @@
 
 mod gaca;
 mod margin;
+mod precedence;
 
 use task_allocation::TaskId;
 use task_allocation::sim::{Participant, Simulation};
@@ -31,8 +32,12 @@ pub struct Outcome {
 }
 
 /// Runs `simulation` until it settles or `limit` ticks pass, and sums up the run over
-/// `tasks` tasks.
-pub fn measure<A: Participant>(mut simulation: Simulation<A>, tasks: usize, limit: u64) -> Outcome {
+/// `tasks` tasks; the simulation stays for further checks.
+pub fn measure<A: Participant>(
+    simulation: &mut Simulation<A>,
+    tasks: usize,
+    limit: u64,
+) -> Outcome {
     let settled = simulation.run_until_settled(limit);
     let stats = simulation.stats();
     let assignment = simulation.assignment();
