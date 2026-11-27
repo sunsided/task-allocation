@@ -2,6 +2,7 @@
 //! report that prints how the protocols compare. Run a report with
 //! `cargo test --release --test it <name> -- --ignored --nocapture`.
 
+mod gaca;
 mod margin;
 
 use task_allocation::TaskId;
