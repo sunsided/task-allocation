@@ -268,6 +268,9 @@ proptest! {
                 prop_assert!(tour.demand(bundle.path()) <= tour.capacity, "{:?}", allocator);
             }
 
+            // Filling magazines greedily can strand joints a better packing fits, so fewer
+            // joints than the optimum is possible (202 of 216 at 30 nails in the report);
+            // the optimum bounds the distance only at an equal count.
             prop_assert!(instance.nailed(&assignment) <= instance.nailed(&optimum));
             if instance.nailed(&assignment) == instance.nailed(&optimum) {
                 prop_assert!(instance.distance(&assignment) >= instance.distance(&optimum));
