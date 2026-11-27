@@ -38,7 +38,11 @@ impl<V: Valuation<TaskId>> Agent<V> {
     ///
     /// The agent ranks tasks by their true marginal gain, but bids at most what it bid on
     /// the task it added last; see the [module docs](self) for the method and its limits.
-    /// With diminishing gains, warping changes nothing.
+    ///
+    /// With diminishing gains and [`Replan::Full`](super::Replan::Full), warping changes
+    /// nothing. With [`Replan::Keep`](super::Replan::Keep) it can: a task another agent held
+    /// while this one filled later slots may be worth more, once freed, than the last bid,
+    /// and is then bid at most that.
     #[must_use]
     pub const fn with_bid_warping(mut self) -> Self {
         self.warping = true;
