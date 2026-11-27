@@ -5,9 +5,11 @@
 //! another task with a known start gets that task's window ([`Constraints::window`]): the
 //! route waits for the window to open and rejects a start after it closes. A path whose
 //! own tasks break the timing limits between them is rejected too, so one agent never takes
-//! two tasks that must start together. Messages carry the start of every winning bid, adopted whenever the conflict table takes the sender's
-//! claim. Each round, an agent also gives up tasks whose starts conflict with their
-//! partners', by the rules of Whitten, Choi, Johnson and How (2011); see the
+//! two tasks that must start together.
+//!
+//! Messages carry the start of every winning bid, adopted whenever the conflict table takes
+//! the sender's claim. Each round, an agent also gives up tasks whose starts conflict with
+//! their partners', by the rules of Whitten, Choi, Johnson and How (2011); see the
 //! [module docs](super).
 
 use alloc::vec;
@@ -181,7 +183,8 @@ impl<R: Route> PathScore<TaskId> for Coordinated<R> {
             return self.timed.insertion_scores(path, task, each);
         }
 
-        let mut candidate: Vec<TaskId> = path.to_vec();
+        let mut candidate = Vec::with_capacity(path.len() + 1);
+        candidate.extend_from_slice(path);
         candidate.push(*task);
         for position in (0..=path.len()).rev() {
             if position < path.len() {
