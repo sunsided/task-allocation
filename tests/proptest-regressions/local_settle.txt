@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 5b955167aa59e3fc7f912f10162db056191d7de52c75a7d4b635f491890faa75 # shrinks to (instance, network) = (Instance { agents: [Courier(BestInsertion(Courier { start: 0, sites: [Site { position: 82, duration: 15, deadline: 257 }], rewards: [7] }))], tasks: 1, capacity: 1 }, Network { seed: 360, max_delay: 0, loss_per_mille: 0, topology: Links([(AgentId(0), AgentId(1))]), partitions: [] }), span = 2
+cc 4c0922792491d88a0ecde3e64d489807d896a943c5a96872e84bfc04dad8b710 # shrinks to (instance, network) = (Instance { agents: [Coverage(Coverage { covers: [206, 201, 205, 220, 142, 9], weights: [7, 18, 17, 7, 10, 2, 8, 15], allowed: 2746955289 }), Coverage(Coverage { covers: [27, 211, 108, 141, 191, 238], weights: [18, 16, 6, 2, 9, 5, 1, 12], allowed: 465987059 }), Coverage(Coverage { covers: [219, 238, 235, 137, 102, 22], weights: [8, 11, 17, 3, 12, 15, 17, 17], allowed: 3998871297 }), Coverage(Coverage { covers: [138, 80, 68, 229, 69, 221], weights: [12, 15, 11, 4, 2, 12, 7, 19], allowed: 3881787171 })], tasks: 6, capacity: 1 }, Network { seed: 9, max_delay: 0, loss_per_mille: 265, topology: Links([(AgentId(0), AgentId(1)), (AgentId(1), AgentId(2)), (AgentId(2), AgentId(3)), (AgentId(1), AgentId(2)), (AgentId(3), AgentId(1))]), partitions: [Partition { from: 9, until: 34, groups: [2, 2, 0, 2] }, Partition { from: 35, until: 85, groups: [1, 2, 1, 0] }, Partition { from: 15, until: 72, groups: [1, 2, 0, 0] }] }), span = 11

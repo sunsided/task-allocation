@@ -153,7 +153,9 @@ assert_eq!(assignment.holder(TaskId(2)), Some(AgentId(1)));
 ```
 
 On real hardware, call `build_bundle` and `message` on every round and pass each message
-that arrives to `receive`. Agents created with `.with_replan(Replan::Full)` rebuild their
+that arrives to `receive`. Without a simulator to tell when the team is done, an agent can use
+`is_locally_settled(span)`: its winners and bids stayed the same for `span` rounds. That is a
+heuristic, since a lost message or a partition looks the same as agreement. Agents created with `.with_replan(Replan::Full)` rebuild their
 bundles from scratch every round, which costs more computation, and settle on a sequential
 greedy assignment: the centralized one, up to the order in which tied gains are resolved.
 Agents created with `.with_bid_warping()` cap each bid at the one before it in their bundle,
