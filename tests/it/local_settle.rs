@@ -34,7 +34,7 @@ fn cbba_team(instance: &Instance) -> Vec<cbba::Agent<support::Agent>> {
 }
 
 /// An ACBBA team for `instance`, following the 2011 table and re-announcing every 10
-/// ticks, so that it settles over lossy networks too.
+/// ticks, which repairs what lost messages leave behind.
 fn acbba_team(instance: &Instance) -> Vec<acbba::Agent<support::Agent>> {
     instance
         .agents
@@ -158,9 +158,9 @@ proptest! {
     }
 }
 
-/// Prints how often detectors with various spans report settled while their agent still
-/// holds a wrong bundle, and how long they lag behind the global verdict, on lossless and
-/// lossy networks. Run with `LOCAL_SETTLE_CASES=2000`; the default is 200.
+/// Prints how often CBBA and ACBBA detectors with various spans report settled while their
+/// agent still holds a wrong bundle, and how long they lag behind the global verdict, on
+/// lossless and lossy networks. Run with `LOCAL_SETTLE_CASES=2000`; the default is 200.
 #[test]
 #[ignore = "an experiment; run on demand"]
 fn mistake_rates() {
@@ -181,31 +181,51 @@ fn mistake_rates() {
         });
 
         for span in [1, 2, 5, 10, 20, 50] {
-            let mut runner = TestRunner::deterministic();
-            let (mut wrong_runs, mut wrong_ticks, mut late, mut settled) = (0, 0, 0, 0);
-            for _ in 0..cases {
-                let (instance, network) =
-                    strategy.new_tree(&mut runner).expect("generates").current();
+            let cbba = tally(&strategy, cases, |instance, network| {
                 let bound = healed(&network) + SETTLE_TICKS;
-                let simulation = Simulation::new(cbba_team(&instance), network);
-                let verdicts = compare(simulation, bound, span, cbba::Agent::is_locally_settled);
-                if !verdicts.settled {
-                    continue;
-                }
+                let simulation = Simulation::new(cbba_team(instance), network);
+                compare(simulation, bound, span, cbba::Agent::is_locally_settled)
+            });
+            let acbba = tally(&strategy, cases, |instance, network| {
+                let bound = healed(&network) + SETTLE_TICKS;
+                let simulation = Simulation::new(acbba_team(instance), network);
+                compare(simulation, bound, span, acbba::Agent::is_locally_settled)
+            });
 
-                settled += 1;
-                wrong_runs += u64::from(verdicts.wrong_early > 0);
-                wrong_ticks += verdicts.wrong_early;
-                late += verdicts.late;
-            }
-
-            println!(
-                "cbba {name:>8} span {span:>2}: wrong early in {wrong_runs}/{settled} runs \
-                 ({wrong_ticks} agent-ticks), {:.1} ticks late on average",
-                f64::from(u32::try_from(late).expect("small")) / f64::from(settled.max(1)),
-            );
+            println!("cbba  {name:>8} span {span:>2}: {cbba}");
+            println!("acbba {name:>8} span {span:>2}: {acbba}");
         }
     }
+}
+
+/// Runs `judge` on `cases` cases drawn deterministically from `strategy`, and sums up the
+/// verdicts of the runs that settled.
+fn tally(
+    strategy: &impl Strategy<Value = (Instance, Network)>,
+    cases: usize,
+    judge: impl Fn(&Instance, Network) -> Verdicts,
+) -> String {
+    let mut runner = TestRunner::deterministic();
+    let (mut wrong_runs, mut wrong_ticks, mut late, mut settled) = (0_u32, 0, 0, 0_u32);
+    for _ in 0..cases {
+        let (instance, network) = strategy.new_tree(&mut runner).expect("generates").current();
+        let verdicts = judge(&instance, network);
+        if !verdicts.settled {
+            continue;
+        }
+
+        settled += 1;
+        wrong_runs += u32::from(verdicts.wrong_early > 0);
+        wrong_ticks += verdicts.wrong_early;
+        late += verdicts.late;
+    }
+
+    let mean_late = f64::from(u32::try_from(late).expect("small")) / f64::from(settled.max(1));
+
+    format!(
+        "wrong early in {wrong_runs}/{settled} runs ({wrong_ticks} agent-ticks), \
+         {mean_late:.1} ticks late on average"
+    )
 }
 
 /// A partition looks just like agreement: two agents cut off from each other both take the
@@ -248,4 +268,24 @@ fn partitions_look_settled() {
 
     simulation.run_until_settled(200).expect("settles");
     assert!(simulation.agents()[0].bundle().is_empty());
+}
+
+/// An agent with nothing to win counts quiet from its first bundle phase, so a team that is
+/// settled before it starts is locally settled after exactly `span` phases.
+#[test]
+fn idle_agents_count_from_the_start() {
+    let idle = support::Agent::Coverage(support::Coverage {
+        covers: vec![1],
+        weights: vec![5],
+        allowed: 0,
+    });
+    let mut cbba = cbba::Agent::new(AgentId(0), 1, 1, 1, idle.clone());
+    let mut acbba = acbba::Agent::new(AgentId(0), 1, 1, idle);
+    for now in 0..3 {
+        cbba.build_bundle();
+        let _ = acbba.build_bundle(now);
+    }
+
+    assert_eq!(cbba.quiet_rounds(), 3);
+    assert_eq!(acbba.quiet_rounds(), 3);
 }

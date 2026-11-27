@@ -2,11 +2,11 @@
 
 use super::Quiet;
 
-/// Unchanged views count up; a change restarts the count, as does a new task.
+/// Unchanged views count up from the initial one; a change restarts the count, as does a
+/// new task.
 #[test]
 fn counts_unchanged_phases() {
-    let mut quiet = Quiet::new();
-    quiet.observe([1, 2].into_iter());
+    let mut quiet = Quiet::new([1, 2].into_iter());
     assert_eq!(quiet.rounds(), 0);
 
     quiet.observe([1, 2].into_iter());

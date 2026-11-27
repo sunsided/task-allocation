@@ -15,10 +15,11 @@ pub(crate) struct Quiet<T> {
 }
 
 impl<T> Quiet<T> {
-    /// A count that has seen no bundle phase yet.
-    pub(crate) const fn new() -> Self {
+    /// A count that has seen no bundle phase yet, starting from the agent's initial `view`,
+    /// so that a first phase that changes nothing already counts as quiet.
+    pub(crate) fn new(view: impl Iterator<Item = T>) -> Self {
         Self {
-            last: Vec::new(),
+            last: view.collect(),
             rounds: 0,
         }
     }

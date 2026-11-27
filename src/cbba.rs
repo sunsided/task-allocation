@@ -243,7 +243,7 @@ impl<V: Valuation<TaskId>> Agent<V> {
             sent: Vec::new(),
             silent_rounds: 0,
             warping: false,
-            quiet: Quiet::new(),
+            quiet: Quiet::new(core::iter::repeat_n(Claim::NONE, tasks)),
         }
     }
 

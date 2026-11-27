@@ -145,7 +145,7 @@ impl<V: Valuation<TaskId>> Agent<V> {
             announce_every: None,
             rules: Rules::default(),
             third_party_ties: true,
-            quiet: Quiet::new(),
+            quiet: Quiet::new(core::iter::repeat_n((None, 0), tasks)),
         }
     }
 
