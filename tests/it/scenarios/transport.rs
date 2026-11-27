@@ -7,11 +7,9 @@
 //! single case and no numbers, so this is a pinned scenario rather than a benchmark.
 //!
 //! The paper's failure mode is one agent taking every copy of the pickup, which it fixes
-//! with an extra reward for taking tasks of different types. Timed CCBBA has the same
-//! failure: within one bundle phase, an agent's windows come only from the starts of tasks
-//! other agents hold, so it can take both copies at different starts, give one up, take it
-//! back, and never settle. [`two_carriers_lift_together`] pins the scenario and is ignored
-//! until that is fixed.
+//! with an extra reward for taking tasks of different types. Timed CCBBA rejects any path
+//! whose own tasks break the timing limits between them, and one agent cannot start two
+//! tasks at once, so the copies go to different agents without that reward.
 
 use task_allocation::ccbba::{Constraints, Optimism, TimedAgent};
 use task_allocation::route::Route;
@@ -119,7 +117,6 @@ fn team(origins: &[u64]) -> Simulation<TimedAgent<Carrier>> {
 /// Three carriers settle on two of them picking the object up together, each dropping its
 /// side off afterwards, while the work gets done and every timing limit holds.
 #[test]
-#[ignore = "timed CCBBA does not check timing limits between tasks of one agent's own bundle while bidding"]
 fn two_carriers_lift_together() {
     let mut simulation = team(&[0, 20, 60]);
     simulation.run_until_settled(500).expect("settles");

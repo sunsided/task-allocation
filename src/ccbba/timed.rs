@@ -3,10 +3,13 @@
 //!
 //! A [`TimedAgent`] schedules its bundle on a [`Route`]. Every task it holds that depends on
 //! another task with a known start gets that task's window ([`Constraints::window`]): the
-//! route waits for the window to open and rejects a start after it closes. Messages carry
-//! the start of every winning bid, adopted whenever the conflict table takes the sender's
-//! claim. Each round, an agent also gives up tasks whose starts conflict with their
-//! partners', by the rules of Whitten, Choi, Johnson and How (2011); see the
+//! route waits for the window to open and rejects a start after it closes. A path whose
+//! own tasks break the timing limits between them is rejected too, so one agent never takes
+//! two tasks that must start together.
+//!
+//! Messages carry the start of every winning bid, adopted whenever the conflict table takes
+//! the sender's claim. Each round, an agent also gives up tasks whose starts conflict with
+//! their partners', by the rules of Whitten, Choi, Johnson and How (2011); see the
 //! [module docs](super).
 
 use alloc::vec;
@@ -19,7 +22,7 @@ use crate::cbba::{self, Action};
 use crate::id::{AgentId, TaskId};
 use crate::route::{Route, Timed, Visit};
 use crate::sim::Participant;
-use crate::valuation::BestInsertion;
+use crate::valuation::{BestInsertion, PathScore};
 
 /// A route that keeps each task within a window imposed by the starts of its partners.
 #[derive(Clone, Debug)]
@@ -111,9 +114,87 @@ impl TimedMessage {
     }
 }
 
-/// The valuation a [`TimedAgent`] bids with: its route, kept within its partners' windows,
-/// with each task inserted where it adds the most.
-type Scheduled<R> = BestInsertion<Timed<Windowed<R>>>;
+/// The valuation a [`TimedAgent`] bids with: its route, kept within its partners' windows
+/// and the timing limits among its own tasks, with each task inserted where it adds the
+/// most.
+type Scheduled<R> = BestInsertion<Coordinated<R>>;
+
+/// A timed route that also keeps the timing limits among the tasks of one path.
+///
+/// The partners' windows only cover tasks other agents hold. Within one bundle phase, a
+/// task this agent has just added would not narrow the window of the next one, so without
+/// this check one agent could take two tasks that must start together, at different
+/// starts, and give one up again in every round.
+#[derive(Clone, Debug)]
+struct Coordinated<R> {
+    /// The route within the partners' windows.
+    timed: Timed<Windowed<R>>,
+
+    /// The constraints whose timing limits the path must keep.
+    constraints: Constraints,
+}
+
+impl<R: Route> Coordinated<R> {
+    /// Whether `path`, with `task` if given, holds two tasks of one activity, whose starts
+    /// then need checking against each other.
+    fn links(&self, path: &[TaskId], task: Option<TaskId>) -> bool {
+        let tasks = || path.iter().copied().chain(task);
+
+        tasks().any(|member| {
+            self.constraints
+                .activity_tasks(member)
+                .any(|partner| tasks().any(|other| other == partner))
+        })
+    }
+}
+
+impl<R: Route> PathScore<TaskId> for Coordinated<R> {
+    /// The timed route's score, or `None` when two tasks of `path` start outside the timing
+    /// limits between them.
+    fn path_score(&self, path: &[TaskId]) -> Option<u64> {
+        if !self.links(path, None) {
+            return self.timed.path_score(path);
+        }
+
+        let visits = self.timed.schedule(path)?;
+        let agree = visits.iter().enumerate().all(|(index, visit)| {
+            visits[index + 1..].iter().all(|other| {
+                self.constraints
+                    .starts_agree(visit.task, visit.start, other.task, other.start)
+            })
+        });
+
+        agree.then(|| {
+            visits
+                .iter()
+                .fold(0, |total: u64, visit| total.saturating_add(visit.reward))
+        })
+    }
+
+    /// The timed route's scores, without building each candidate path, unless `task`
+    /// shares an activity with a task of `path`.
+    fn insertion_scores(
+        &self,
+        path: &[TaskId],
+        task: &TaskId,
+        each: &mut dyn FnMut(usize, Option<u64>),
+    ) {
+        if !self.links(path, Some(*task)) {
+            return self.timed.insertion_scores(path, task, each);
+        }
+
+        let mut candidate = Vec::with_capacity(path.len() + 1);
+        candidate.extend_from_slice(path);
+        candidate.push(*task);
+        for position in (0..=path.len()).rev() {
+            if position < path.len() {
+                candidate.swap(position, position + 1);
+            }
+
+            each(position, self.path_score(&candidate));
+        }
+    }
+}
 
 /// One CCBBA agent with temporal constraints, scheduling its bundle on a route.
 ///
@@ -193,7 +274,10 @@ impl<R: Route> TimedAgent<R> {
             route,
             windows: RefCell::new(vec![(0, None); tasks]),
         };
-        let valuation = BestInsertion(Timed(windowed));
+        let valuation = BestInsertion(Coordinated {
+            timed: Timed(windowed),
+            constraints: constraints.clone(),
+        });
 
         Self {
             agent: Agent::new(
@@ -277,7 +361,7 @@ impl<R: Route> TimedAgent<R> {
         let view = gate.view.borrow();
         let constraints = &gate.constraints;
         let claims = self.agent.inner.claims();
-        let mut windows = gate.inner.0.0.windows.borrow_mut();
+        let mut windows = gate.inner.0.timed.0.windows.borrow_mut();
 
         for (index, window) in windows.iter_mut().enumerate() {
             let task = TaskId(index);
@@ -306,7 +390,7 @@ impl<R: Route> TimedAgent<R> {
     /// when the windows make the bundle infeasible, without them; `None` when even the route
     /// alone cannot execute it.
     fn own_visits(&self) -> Option<Vec<Visit>> {
-        let timed = &self.agent.inner.valuation().inner.0;
+        let timed = &self.agent.inner.valuation().inner.0.timed;
         let path = self.agent.bundle().path();
 
         timed
@@ -380,7 +464,7 @@ impl<R> TimedAgent<R> {
     /// This agent's route.
     #[must_use]
     pub const fn route(&self) -> &R {
-        &self.agent.valuation().0.0.route
+        &self.agent.valuation().0.timed.0.route
     }
 
     /// The constraints this agent bids under.
@@ -473,9 +557,13 @@ impl<R: Route> Participant for TimedAgent<R> {
 /// Unit tests for [`TimedAgent`].
 #[cfg(test)]
 mod tests {
-    use super::{Constraints, Optimism, TimedAgent};
+    use alloc::vec;
+    use core::cell::RefCell;
+
+    use super::{Constraints, Coordinated, Optimism, TimedAgent, Windowed};
     use crate::id::{AgentId, TaskId};
-    use crate::route::Route;
+    use crate::route::{Route, Timed};
+    use crate::valuation::PathScore;
 
     /// One task at position 5 on a line, worth 1 by time 100.
     struct Point;
@@ -535,5 +623,61 @@ mod tests {
         agent.build_bundle();
 
         assert_eq!(agent.start(TaskId(0)), Some(20));
+    }
+
+    /// [`Point`]'s task, taking 4 to do.
+    struct Busy;
+
+    impl Route for Busy {
+        type Place = u64;
+
+        fn origin(&self) -> u64 {
+            Point.origin()
+        }
+
+        fn place(&self, task: TaskId) -> u64 {
+            Point.place(task)
+        }
+
+        fn travel(&self, from: &u64, to: &u64) -> Option<u64> {
+            Point.travel(from, to)
+        }
+
+        fn duration(&self, _task: TaskId) -> u64 {
+            4
+        }
+
+        fn reward(&self, task: TaskId, finish: u64) -> Option<u64> {
+            Point.reward(task, finish)
+        }
+    }
+
+    /// One agent cannot do two tasks that must start together, since it does them one
+    /// after the other; either alone, or both with room between them, is fine.
+    #[test]
+    fn own_tasks_keep_their_timing_limits() {
+        let coordinated = |limit: i64| {
+            let mut constraints = Constraints::new(2);
+            constraints
+                .add_timed_activity(
+                    &[TaskId(0), TaskId(1)],
+                    &[&[0, 1], &[1, 0]],
+                    &[&[Some(0), Some(limit)], &[Some(limit), Some(0)]],
+                )
+                .expect("a well-formed pair");
+
+            Coordinated {
+                timed: Timed(Windowed {
+                    route: Busy,
+                    windows: RefCell::new(vec![(0, None); 2]),
+                }),
+                constraints,
+            }
+        };
+
+        let together = coordinated(0);
+        assert_eq!(together.path_score(&[TaskId(0)]), Some(1));
+        assert_eq!(together.path_score(&[TaskId(0), TaskId(1)]), None);
+        assert_eq!(coordinated(4).path_score(&[TaskId(0), TaskId(1)]), Some(2));
     }
 }
