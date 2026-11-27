@@ -129,7 +129,11 @@ impl Protocol {
                     })
                     .collect();
 
-                measure(Simulation::new(team, network), values[0].0.len(), limit)
+                measure(
+                    &mut Simulation::new(team, network),
+                    values[0].0.len(),
+                    limit,
+                )
             }
             Self::Bwtc => {
                 let team = (0..agents)
@@ -140,7 +144,11 @@ impl Protocol {
                     })
                     .collect();
 
-                measure(Simulation::new(team, network), values[0].0.len(), limit)
+                measure(
+                    &mut Simulation::new(team, network),
+                    values[0].0.len(),
+                    limit,
+                )
             }
             Self::Acbba => {
                 let team = (0..agents)
@@ -151,7 +159,11 @@ impl Protocol {
                     })
                     .collect();
 
-                measure(Simulation::new(team, network), values[0].0.len(), limit)
+                measure(
+                    &mut Simulation::new(team, network),
+                    values[0].0.len(),
+                    limit,
+                )
             }
         }
     }
