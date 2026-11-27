@@ -520,8 +520,13 @@ impl<V: Valuation<TaskId>> Participant for Agent<V> {
     }
 
     /// Runs CBBA's consensus phase for `message`.
-    fn receive(&mut self, _now: u64, message: &Message, _outbox: &mut Vec<Message>) {
-        Agent::receive(self, message);
+    fn receive(&mut self, _now: u64, message: &Message, _outbox: &mut Vec<Message>) -> bool {
+        Agent::receive(self, message)
+    }
+
+    /// CBBA's message: the sender, every task's winner and bid, and every agent's clock.
+    fn message_bytes(message: &Message) -> u64 {
+        message.bytes()
     }
 
     /// CBBA's settled check, plus: no agent would give up a task. Then every held task's

@@ -67,4 +67,13 @@ impl Message {
     pub fn tasks(&self) -> usize {
         self.claims.len()
     }
+
+    /// The message's nominal size on the wire, in bytes: the sender, then every task's
+    /// winner and bid, then every agent's clock, each list after its length.
+    pub(crate) fn bytes(&self) -> u64 {
+        let claims = u64::try_from(self.claims.len()).unwrap_or(u64::MAX);
+        let seen = u64::try_from(self.seen.len()).unwrap_or(u64::MAX);
+
+        4 + 4 + 12 * claims + 4 + 8 * seen
+    }
 }

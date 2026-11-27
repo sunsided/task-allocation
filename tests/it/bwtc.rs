@@ -95,7 +95,8 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
     /// Without losses, every run settles on a stable assignment, on complete and sparse
-    /// topologies with delays that reorder messages.
+    /// topologies with delays that reorder messages; once a bid is placed in a team, some
+    /// copy tells another agent something new.
     #[test]
     fn lossless_runs_settle(
         (instance, network) in instance_with(MAX_TEAM).prop_flat_map(|instance| {
@@ -108,6 +109,11 @@ proptest! {
         };
 
         stable(&simulation, &instance)?;
+        let stats = simulation.stats();
+        prop_assert!(stats.useful <= stats.delivered);
+        if instance.agents.len() > 1 && simulation.assignment().value() > 0 {
+            prop_assert!(stats.useful > 0, "{:?}", stats);
+        }
     }
 }
 

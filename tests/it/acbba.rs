@@ -119,7 +119,8 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
     /// Without losses, agents that re-announce every ten ticks and settle do so in agreement
-    /// on a stable assignment, on complete and sparse topologies.
+    /// on a stable assignment, on complete and sparse topologies. Once settled, the
+    /// re-announcements only move bid times, so no copy counts as useful.
     #[test]
     fn settled_lossless_runs_are_stable(
         (instance, network) in instance_with(MAX_TEAM).prop_flat_map(|instance| {
@@ -127,11 +128,21 @@ proptest! {
             (Just(instance), lossless(agents))
         }),
     ) {
-        let Some(simulation) = run(&instance, network, Some(10)) else {
+        let Some(mut simulation) = run(&instance, network, Some(10)) else {
             return Ok(());
         };
 
         stable(&simulation, &instance)?;
+        if instance.agents.len() > 1 && simulation.assignment().value() > 0 {
+            prop_assert!(simulation.stats().useful > 0);
+        }
+
+        let settled = simulation.stats();
+        for _ in 0..30 {
+            simulation.step();
+        }
+        prop_assert!(simulation.stats().delivered > settled.delivered || instance.agents.len() < 2);
+        prop_assert_eq!(simulation.stats().useful, settled.useful);
     }
 
     /// With losses and partitions, agents that re-announce their view every ten ticks and
