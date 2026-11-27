@@ -65,9 +65,10 @@ pub struct Network {
 
     /// Whether broadcasts from hidden nodes collide.
     ///
-    /// Each tick, every sender waits a random backoff of one of [`BACKOFF_SLOTS`] slots
-    /// before transmitting, as 802.11 radios do. Two senders that cannot hear each other
-    /// and pick the same slot lose both their copies to every agent that hears them both.
+    /// Every message a sender broadcasts is a frame that waits a random backoff of one of
+    /// [`BACKOFF_SLOTS`] slots before going out, as 802.11 radios do. Two frames from
+    /// senders that cannot hear each other in the same slot are both lost to every agent
+    /// that hears both senders; their bytes still count, since they took the airtime.
     /// Senders that hear each other take turns, as radios sensing the channel do, so on a
     /// [`Topology::Complete`] network nothing collides. This follows the hidden-node
     /// picture in Raja, Habibi and How (IEEE Access 10, 2022, p. 19756), with their
@@ -478,12 +479,16 @@ impl<A: Participant> Simulation<A> {
         let slots = self.backoff_slots(outboxes);
 
         for (sender, outbox) in outboxes.iter_mut().enumerate() {
-            for message in outbox.drain(..) {
+            for (frame, message) in outbox.drain(..).enumerate() {
                 let message = Rc::new(message);
+                let slot = slots
+                    .get(sender)
+                    .and_then(|frames| frames.get(frame))
+                    .copied();
                 let mut transmitted = false;
                 for receiver in (0..agents).filter(|&receiver| receiver != sender) {
                     let (from, to) = (AgentId(sender), AgentId(receiver));
-                    let collides = self.collides(&slots, from, to);
+                    let collides = slot.is_some_and(|slot| self.collides(&slots, from, slot, to));
                     transmitted |= self.send(from, to, &message, collides);
                 }
 
@@ -494,31 +499,32 @@ impl<A: Participant> Simulation<A> {
         }
     }
 
-    /// Each agent's backoff slot this tick, `None` when it sends nothing; empty when
-    /// [collisions](Network::collisions) are off, so that no randomness is drawn.
-    fn backoff_slots(&mut self, outboxes: &[Vec<A::Message>]) -> Vec<Option<u64>> {
+    /// The backoff slot of every message in every agent's outbox this tick: each message is
+    /// its own frame and contends on its own. Empty when [collisions](Network::collisions)
+    /// are off, so that no randomness is drawn.
+    fn backoff_slots(&mut self, outboxes: &[Vec<A::Message>]) -> Vec<Vec<u64>> {
         if !self.network.collisions {
             return Vec::new();
         }
 
         outboxes
             .iter()
-            .map(|outbox| (!outbox.is_empty()).then(|| self.rng.below(BACKOFF_SLOTS)))
+            .map(|outbox| {
+                outbox
+                    .iter()
+                    .map(|_| self.rng.below(BACKOFF_SLOTS))
+                    .collect()
+            })
             .collect()
     }
 
-    /// Whether the copy from `from` to `to` collides this tick: another sender in the same
-    /// backoff slot reaches `to` but cannot hear `from`. Empty `slots` means collisions are
-    /// off.
-    fn collides(&self, slots: &[Option<u64>], from: AgentId, to: AgentId) -> bool {
-        let Some(&Some(slot)) = slots.get(from.index()) else {
-            return false;
-        };
-
-        slots.iter().enumerate().any(|(other, &other_slot)| {
+    /// Whether the copy from `from` to `to`, sent in backoff `slot`, collides: another
+    /// sender with a frame in the same slot reaches `to` but cannot hear `from`.
+    fn collides(&self, slots: &[Vec<u64>], from: AgentId, slot: u64, to: AgentId) -> bool {
+        slots.iter().enumerate().any(|(other, frames)| {
             let other = AgentId(other);
 
-            other_slot == Some(slot)
+            frames.contains(&slot)
                 && other != from
                 && other != to
                 && !self.is_cut_off(other, to)
