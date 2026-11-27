@@ -16,7 +16,8 @@
 //!   service windows and rewards that depend on the finish time.
 //! - [`cbba`]: the consensus-based bundle algorithm. Each [`cbba::Agent`] builds its bundle,
 //!   broadcasts its view of every task's winner, and merges what it hears, until the team
-//!   agrees on a conflict-free assignment.
+//!   agrees on a conflict-free assignment. [Bid warping](cbba::warp) extends it to gains
+//!   that do not diminish.
 //! - [`ccbba`]: CBBA for coupled tasks that need or exclude each other, optionally with
 //!   timing limits between their starts on timed routes.
 //! - [`acbba`]: asynchronous CBBA, experimental. Agents bid and resolve conflicts on their
