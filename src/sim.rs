@@ -141,8 +141,9 @@ pub struct Stats {
     pub useful: u64,
 
     /// Bytes broadcast, by [`Participant::message_bytes`], counted once per broadcast that
-    /// reached at least one receiver: on a shared radio channel, one transmission reaches
-    /// every neighbor.
+    /// went on the air to at least one receiver, whether its copies arrived or were lost:
+    /// on a shared radio channel, one transmission reaches every neighbor and costs the
+    /// same airtime either way.
     pub bytes: u64,
 }
 
