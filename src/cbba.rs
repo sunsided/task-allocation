@@ -72,11 +72,16 @@
 //! [`Cadence::OnChange`], an agent only broadcasts after its winners or bids changed, so a
 //! team that agrees falls silent; an optional refresh resends the state now and then, for
 //! networks that lose messages or partition.
+//!
+//! For valuations whose marginal gains do not diminish, such as routes where tasks become
+//! cheaper together, [`Agent::with_bid_warping`] caps every bid at the one before it in the
+//! bundle; see [`warp`].
 
 mod cadence;
 mod dynamic;
 mod message;
 pub(crate) mod table;
+pub mod warp;
 
 pub use cadence::Cadence;
 pub use message::Message;
@@ -86,7 +91,7 @@ use alloc::vec::Vec;
 
 use crate::bundle::Bundle;
 use crate::id::{AgentId, TaskId};
-use crate::valuation::Valuation;
+use crate::valuation::{Insertion, Valuation};
 pub(crate) use table::Action;
 use table::{Claim, Exchange};
 
@@ -171,6 +176,10 @@ pub struct Agent<V> {
 
     /// Rounds since this agent's last message in which it stayed silent.
     silent_rounds: u64,
+
+    /// Whether this agent [warps its bids](Agent::with_bid_warping), so that they never
+    /// grow along its bundle.
+    warping: bool,
 }
 
 /// How much of its bundle an agent releases before each bundle phase, to reconsider it.
@@ -229,6 +238,7 @@ impl<V: Valuation<TaskId>> Agent<V> {
             cadence: Cadence::EveryRound,
             sent: Vec::new(),
             silent_rounds: 0,
+            warping: false,
         }
     }
 
@@ -283,8 +293,9 @@ impl<V: Valuation<TaskId>> Agent<V> {
     /// this agent can win until its bundle is full or nothing is left to win; returns the
     /// number of tasks added after the release.
     ///
-    /// Each added task's bid is its marginal gain, and this agent becomes its winner in its
-    /// own tables. With [`Replan::Keep`], the bundle grows in place, without allocating once
+    /// Each added task's bid is its marginal gain, capped at the previous bid when this
+    /// agent [warps its bids](Agent::with_bid_warping), and this agent becomes its winner in
+    /// its own tables. With [`Replan::Keep`], the bundle grows in place, without allocating once
     /// the bundle has reached its capacity before.
     pub fn build_bundle(&mut self) -> usize {
         if self.replan == Replan::Keep {
@@ -295,10 +306,11 @@ impl<V: Valuation<TaskId>> Agent<V> {
                 bundle,
                 claims,
                 tasks,
+                warping,
                 ..
             } = self;
 
-            return extend_and_claim(*id, valuation, tasks, limit, bundle, claims);
+            return extend_and_claim(*id, valuation, tasks, limit, *warping, bundle, claims);
         }
 
         let (bundle, claims, added) = self.rebuilt();
@@ -318,12 +330,13 @@ impl<V: Valuation<TaskId>> Agent<V> {
         if self.replan == Replan::Keep {
             let id = self.id;
             let claims = &self.claims;
+            let ceiling = warp::ceiling(&self.bundle, self.warping);
 
             return self.bundle.len() < self.capacity
                 && self
                     .bundle
                     .best_candidate(&self.valuation, &self.tasks, |task, gain| {
-                        Self::wins(id, claims, *task, gain)
+                        Self::wins(id, claims, *task, gain.min(ceiling))
                     })
                     .is_some();
         }
@@ -345,6 +358,7 @@ impl<V: Valuation<TaskId>> Agent<V> {
             &self.valuation,
             &self.tasks,
             self.limit(bundle.len()),
+            self.warping,
             &mut bundle,
             &mut claims,
         );
@@ -548,20 +562,38 @@ const fn budget_fits(replan: Replan, budget: Option<usize>, capacity: usize) -> 
 }
 
 /// Extends `bundle` greedily with the tasks agent `id` can win against `claims`, up to
-/// `capacity`, and records the agent as the winner of each added task, at its gain; returns
+/// `capacity`, and records the agent as the winner of each added task, at its bid; returns
 /// the number of tasks added.
+///
+/// Each step takes the task with the highest marginal gain whose bid wins. The bid is the
+/// gain, capped with `warping` at the bid on the task added last.
 fn extend_and_claim<V: Valuation<TaskId>>(
     id: AgentId,
     valuation: &V,
     tasks: &[TaskId],
     capacity: usize,
+    warping: bool,
     bundle: &mut Bundle<TaskId>,
     claims: &mut [Claim],
 ) -> usize {
     let before = bundle.len();
-    bundle.extend_greedily(valuation, tasks, capacity, |task, gain| {
-        Agent::<V>::wins(id, claims, *task, gain)
-    });
+    while bundle.len() < capacity {
+        let ceiling = warp::ceiling(bundle, warping);
+        let Some((&task, insertion)) = bundle.best_candidate(valuation, tasks, |task, gain| {
+            Agent::<V>::wins(id, claims, *task, gain.min(ceiling))
+        }) else {
+            break;
+        };
+
+        let bid = insertion.gain.min(ceiling);
+        bundle.insert(
+            task,
+            Insertion {
+                gain: bid,
+                ..insertion
+            },
+        );
+    }
 
     for (task, gain) in bundle.entries().skip(before) {
         claims[task.index()] = Claim {

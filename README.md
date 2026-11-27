@@ -156,6 +156,9 @@ On real hardware, call `build_bundle` and `message` on every round and pass each
 that arrives to `receive`. Agents created with `.with_replan(Replan::Full)` rebuild their
 bundles from scratch every round, which costs more computation, and settle on a sequential
 greedy assignment: the centralized one, up to the order in which tied gains are resolved.
+Agents created with `.with_bid_warping()` cap each bid at the one before it in their bundle,
+so CBBA also settles with scores whose gains grow, such as routes where nearby sites are
+cheaper together.
 
 The crate is `no_std`, needs `alloc`, and has no runtime dependencies.
 
