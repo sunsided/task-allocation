@@ -55,8 +55,8 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
     /// Without losses, agents that only broadcast after a change settle on a stable
-    /// assignment, on complete and sparse topologies, and send no more messages than
-    /// agents that broadcast every round.
+    /// assignment, on complete and sparse topologies, and send no more messages or bytes
+    /// than agents that broadcast every round.
     #[test]
     fn lossless_runs_settle_with_fewer_messages(
         (instance, network) in instance_with(MAX_TEAM).prop_flat_map(|instance| {
@@ -72,6 +72,7 @@ proptest! {
 
         let every_round = run(&instance, network, Cadence::EveryRound).expect("settles");
         prop_assert!(quiet.stats().sent <= every_round.stats().sent);
+        prop_assert!(quiet.stats().bytes <= every_round.stats().bytes);
     }
 
     /// With losses and partitions, agents that only broadcast after a change, and refresh

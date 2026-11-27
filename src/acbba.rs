@@ -487,9 +487,26 @@ impl<V: Valuation<TaskId>> Participant for Agent<V> {
         }
     }
 
-    /// Resolves `message` and rebroadcasts right away.
-    fn receive(&mut self, now: u64, message: &Message, outbox: &mut Vec<Message>) {
+    /// Resolves `message` and rebroadcasts right away. A change of the task's winner or
+    /// bid counts as a change, as does a released task; a moved bid time alone does not.
+    fn receive(&mut self, now: u64, message: &Message, outbox: &mut Vec<Message>) -> bool {
+        let view = |agent: &Self| {
+            let claim = agent.claims.get(message.task.index());
+
+            (
+                claim.map(|claim| (claim.winner, claim.bid)),
+                agent.bundle.len(),
+            )
+        };
+        let before = view(self);
         outbox.extend(Agent::receive(self, now, message));
+
+        view(self) != before
+    }
+
+    /// The sender, the task, and the claim: winner, bid and time.
+    fn message_bytes(_message: &Message) -> u64 {
+        4 + 4 + 4 + 8 + 8
     }
 
     /// Every agent believes in the same winner and bid for every task, every bundle

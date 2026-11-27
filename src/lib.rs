@@ -27,7 +27,7 @@
 //!   changed, withdrawals included, with a timestamp per bidder and task, so a withdrawn
 //!   bid cannot come back; for networks that deliver every message.
 //! - [`sim`]: a deterministic simulated network with delays, losses and partitions, to run
-//!   teams on.
+//!   teams on, counting the messages and bytes they spend and how many were useful.
 //! - [`auction`]: auction baselines with a central auctioneer: sequential single-item
 //!   auctions, and combinatorial auctions with exact winner determination.
 //! - [`centralized`]: reference allocations with full knowledge of every valuation: the

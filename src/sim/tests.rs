@@ -157,3 +157,33 @@ fn simulations_clone() {
     copy.step();
     assert_eq!(original.tick() + 1, copy.tick());
 }
+
+/// Every broadcast counts its nominal size once: two agents over two tasks each send 4
+/// for the sender, 4 + 2 × 12 for the claims and 4 + 2 × 8 for the clocks.
+#[test]
+fn bytes_count_each_broadcast_once() {
+    let mut simulation = Simulation::new(team(2, 2, 1), Network::default());
+    simulation.step();
+
+    assert_eq!(simulation.stats().bytes, 2 * (4 + 4 + 2 * 12 + 4 + 2 * 8));
+}
+
+/// The first copies tell each agent about the other's bid, so both count as useful; once
+/// the team settled, further copies change nothing.
+#[test]
+fn useful_copies_stop_once_settled() {
+    let mut simulation = Simulation::new(team(2, 2, 1), Network::default());
+    simulation.step();
+    simulation.step();
+    assert_eq!(simulation.stats().delivered, 2);
+    assert_eq!(simulation.stats().useful, 2);
+
+    simulation.run_until_settled(100).expect("settles");
+    let settled = simulation.stats();
+    for _ in 0..10 {
+        simulation.step();
+    }
+
+    assert!(simulation.stats().delivered > settled.delivered);
+    assert_eq!(simulation.stats().useful, settled.useful);
+}

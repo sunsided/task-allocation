@@ -17,7 +17,7 @@ Decentralized multi-agent task allocation in Rust: agents decide among themselve
 - Coupled-constraint CBBA for tasks that depend on or exclude each other, and that must start within limits of each other
 - Sequential and combinatorial auctions as baselines
 - Task scores from user-supplied costs, such as travel time, deadlines or resource use
-- A deterministic simulated network (seeded delays, losses and partitions) to test teams on
+- A deterministic simulated network (seeded delays, losses and partitions) to test teams on, counting messages, bytes and how many messages changed anything
 - Timed routes: a ready-made path score from travel times, service windows and rewards that decay with the finish time
 - Greedy bundle construction from marginal gains, with a check for diminishing gains
 - Centralized references: the sequential greedy assignment, and the exhaustive optimum for small instances

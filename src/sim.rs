@@ -19,6 +19,9 @@
 //! other. Agents process the messages that arrive in a tick in arrival order. Everything
 //! random comes from [`Network::seed`]: the same seed gives the same run.
 //!
+//! [`Stats`] counts what the run cost: copies sent, delivered and lost, the bytes
+//! broadcast, and how many delivered copies changed their receiver.
+//!
 //! When a team is *settled* is up to the protocol ([`Participant::is_settled`]). For CBBA,
 //! every agent believes in the same winners, every agent's bundle holds exactly the tasks it
 //! wins, no bundle phase would change anything, and every message still in flight carries
@@ -108,6 +111,17 @@ impl Partition {
 }
 
 /// Message counts over a run.
+///
+/// Two ratios compare protocols beyond raw counts:
+///
+/// - **Value of a message:** `useful / delivered`, the share of delivered copies that
+///   changed the receiver's winners, bids or bundle. Raja, Habibi and How ("Communication-
+///   Aware Consensus-Based Decentralized Task Allocation", IEEE Access 10, 2022, Eq. 3)
+///   average the number of changed winning-bid entries per neighbor instead; here a copy
+///   counts once, however many entries it changed.
+/// - **Bytes per completed task:** `bytes` divided by the number of tasks the final
+///   [assignment](Simulation::assignment) holds, as in Zhao et al. ("AC-DMTA", Drones 10,
+///   2026, Sec. 5.4). Sizes are nominal; see [`Participant::message_bytes`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Stats {
     /// Copies of broadcasts put on the network, one per reachable receiver.
@@ -122,6 +136,15 @@ pub struct Stats {
     /// Copies that could not be sent because the topology has no link to the receiver, or a
     /// partition cut it off.
     pub blocked: u64,
+
+    /// Delivered copies that changed the receiver's winners, bids or bundle.
+    pub useful: u64,
+
+    /// Bytes broadcast, by [`Participant::message_bytes`], counted once per broadcast that
+    /// went on the air to at least one receiver, whether its copies arrived or were lost:
+    /// on a shared radio channel, one transmission reaches every neighbor and costs the
+    /// same airtime either way.
+    pub bytes: u64,
 }
 
 /// An agent that a [`Simulation`] can run: it works in rounds, broadcasts messages, and
@@ -143,8 +166,21 @@ pub trait Participant: Sized {
     fn act(&mut self, now: u64, outbox: &mut Vec<Self::Message>);
 
     /// Handles `message`, arriving at tick `now`; pushes what the agent broadcasts in
-    /// response onto `outbox`.
-    fn receive(&mut self, now: u64, message: &Self::Message, outbox: &mut Vec<Self::Message>);
+    /// response onto `outbox`. Returns whether the agent's winners, bids or bundle changed,
+    /// for [`Stats::useful`].
+    fn receive(
+        &mut self,
+        now: u64,
+        message: &Self::Message,
+        outbox: &mut Vec<Self::Message>,
+    ) -> bool;
+
+    /// The size of `message` on the wire, in bytes, for [`Stats::bytes`].
+    ///
+    /// The protocols in this crate use a nominal encoding without compression: 4 bytes per
+    /// agent or task identifier (an absent winner takes a reserved value), 8 per bid,
+    /// timestamp or clock, 1 per tag, and a 4-byte length before every list.
+    fn message_bytes(message: &Self::Message) -> u64;
 
     /// Whether `team` has settled, with `in_flight` still on its way: the agents agree on a
     /// conflict-free assignment that nothing in flight and no further round can change.
@@ -176,8 +212,18 @@ impl<V: Valuation<TaskId>> Participant for cbba::Agent<V> {
     }
 
     /// Runs the consensus phase for `message`; CBBA answers in the next round, not now.
-    fn receive(&mut self, _now: u64, message: &cbba::Message, _outbox: &mut Vec<cbba::Message>) {
-        cbba::Agent::receive(self, message);
+    fn receive(
+        &mut self,
+        _now: u64,
+        message: &cbba::Message,
+        _outbox: &mut Vec<cbba::Message>,
+    ) -> bool {
+        cbba::Agent::receive(self, message)
+    }
+
+    /// The sender, every task's winner and bid, and every agent's clock.
+    fn message_bytes(message: &cbba::Message) -> u64 {
+        message.bytes()
     }
 
     /// The team agrees on every winner, every bundle matches, no agent's bundle phase would
@@ -362,8 +408,9 @@ impl<A: Participant> Simulation<A> {
         due.sort_unstable_by_key(|copy| (copy.arrives, copy.order));
         for copy in due.drain(..) {
             let to = copy.to.index();
-            self.agents[to].receive(tick, &copy.message, &mut outboxes[to]);
+            let changed = self.agents[to].receive(tick, &copy.message, &mut outboxes[to]);
             self.stats.delivered += 1;
+            self.stats.useful += u64::from(changed);
         }
 
         self.due = due;
@@ -375,25 +422,30 @@ impl<A: Participant> Simulation<A> {
         for (sender, outbox) in outboxes.iter_mut().enumerate() {
             for message in outbox.drain(..) {
                 let message = Rc::new(message);
+                let mut transmitted = false;
                 for receiver in (0..agents).filter(|&receiver| receiver != sender) {
-                    self.send(AgentId(sender), AgentId(receiver), &message);
+                    transmitted |= self.send(AgentId(sender), AgentId(receiver), &message);
+                }
+
+                if transmitted {
+                    self.stats.bytes += A::message_bytes(&message);
                 }
             }
         }
     }
 
     /// Sends one copy of `message` from `from` to `to`, unless a partition blocks it or the
-    /// network loses it.
-    fn send(&mut self, from: AgentId, to: AgentId, message: &Rc<A::Message>) {
+    /// network loses it; returns whether the copy went on the air, lost or not.
+    fn send(&mut self, from: AgentId, to: AgentId, message: &Rc<A::Message>) -> bool {
         if self.is_cut_off(from, to) {
             self.stats.blocked += 1;
-            return;
+            return false;
         }
 
         self.stats.sent += 1;
         if self.rng.below(1000) < u64::from(self.network.loss_per_mille) {
             self.stats.lost += 1;
-            return;
+            return true;
         }
 
         let delay = 1 + self.rng.below(self.network.max_delay.saturating_add(1));
@@ -404,6 +456,8 @@ impl<A: Participant> Simulation<A> {
             message: Rc::clone(message),
         });
         self.next_order += 1;
+
+        true
     }
 
     /// Whether `a` and `b` have no direct link, or an active partition separates them now.

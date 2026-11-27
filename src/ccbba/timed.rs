@@ -434,8 +434,20 @@ impl<R: Route> Participant for TimedAgent<R> {
     }
 
     /// Runs the consensus phase for `message`.
-    fn receive(&mut self, _now: u64, message: &TimedMessage, _outbox: &mut Vec<TimedMessage>) {
-        TimedAgent::receive(self, message);
+    fn receive(
+        &mut self,
+        _now: u64,
+        message: &TimedMessage,
+        _outbox: &mut Vec<TimedMessage>,
+    ) -> bool {
+        TimedAgent::receive(self, message)
+    }
+
+    /// CBBA's message, then every task's start, each a tag and a time.
+    fn message_bytes(message: &TimedMessage) -> u64 {
+        let starts = u64::try_from(message.starts.len()).unwrap_or(u64::MAX);
+
+        message.claims.bytes() + 4 + 9 * starts
     }
 
     /// CCBBA's settled check, plus agreement on every start, among agents and in flight.

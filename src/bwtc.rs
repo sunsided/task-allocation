@@ -95,6 +95,16 @@ pub enum Entry {
     },
 }
 
+impl Entry {
+    /// The task the entry is about.
+    #[must_use]
+    pub const fn task(self) -> TaskId {
+        match self {
+            Self::Bid { task, .. } | Self::Drop { task, .. } => task,
+        }
+    }
+}
+
 /// Everything an agent broadcasts at the end of one round.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Packet {
@@ -480,9 +490,33 @@ impl<V: Valuation<TaskId>> Participant for Agent<V> {
         outbox.extend(self.packet());
     }
 
-    /// Merges `packet`; what it calls for goes out at the end of the next round.
-    fn receive(&mut self, _now: u64, packet: &Packet, _outbox: &mut Vec<Packet>) {
+    /// Merges `packet`; what it calls for goes out at the end of the next round. A change
+    /// of the best known bid on a task the packet names counts as a change, as does a
+    /// released task; a newer time for the same bid does not.
+    fn receive(&mut self, _now: u64, packet: &Packet, _outbox: &mut Vec<Packet>) -> bool {
+        let view = |agent: &Self| -> (Vec<Option<Bid>>, usize) {
+            let best = packet
+                .entries
+                .iter()
+                .map(|entry| entry.task())
+                .filter(|task| task.index() < agent.tasks.len())
+                .map(|task| agent.best(task))
+                .collect();
+
+            (best, agent.bundle.len())
+        };
+        let before = view(self);
         Agent::receive(self, packet);
+
+        view(self) != before
+    }
+
+    /// The sender, then every entry after the list's length: a tag, the task, the bidder,
+    /// the gain (unused by a drop) and the time.
+    fn message_bytes(packet: &Packet) -> u64 {
+        let entries = u64::try_from(packet.entries.len()).unwrap_or(u64::MAX);
+
+        4 + 4 + (1 + 4 + 4 + 8 + 8) * entries
     }
 
     /// The network is quiet, nothing is queued, every agent knows the same best bid for
