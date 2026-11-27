@@ -9,50 +9,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.2.0](https://github.com/sunsided/task-allocation/compare/v0.1.2...v0.2.0) - 2026-11-27
 
+### Breaking changes
+
+- `sim::Participant::receive` now returns whether the receiver's winners, bids or bundle changed.
+- `sim::Participant::message_bytes` is a new required method: a message's nominal size on the wire.
+- `sim::Stats` gains `useful`, `bytes` and `collided`, and `sim::Network` gains `collisions` and `clusters`. Struct literals need the new fields, or `..Default::default()`.
+
 ### Added
 
-- Add hidden-node collisions and cluster rates to the network
-- Add local settle detection to CBBA and ACBBA agents ([#46](https://github.com/sunsided/task-allocation/pull/46))
-- Add local settle detection to CBBA and ACBBA agents
-- Add bid warping to CBBA for gains that do not diminish
-- Add BW-TC, the task consensus of bid-warped CBBA
-- Add the 2010 and 2012 ACBBA tables and compare them with 2011
-- Add an ACBBA implementation that does not yet settle reliably
+- Add bid warping to CBBA (`cbba::Agent::with_bid_warping`) for gains that do not diminish ([#45](https://github.com/sunsided/task-allocation/pull/45))
+- Add BW-TC (`bwtc`), the task consensus of bid-warped CBBA, experimental ([#44](https://github.com/sunsided/task-allocation/pull/44))
+- Add an experimental ACBBA (`acbba`) with the 2010, 2011 and 2012 decision tables; the 2011 table is the default
+- Add event-driven broadcasting to CBBA (`cbba::Cadence::OnChange`)
+- Add local settle detection to CBBA and ACBBA agents (`quiet_rounds`, `is_locally_settled`) ([#46](https://github.com/sunsided/task-allocation/pull/46))
+- Add useful-copy and byte counts to the simulator's `Stats`, and `bwtc::Entry::task` ([#47](https://github.com/sunsided/task-allocation/pull/47))
+- Add hidden-node collisions and slow links between clusters to the simulated network ([#48](https://github.com/sunsided/task-allocation/pull/48))
+- Add benchmark scenarios after AC-DMTA, GACA, CTAS-AMP, JKROS and ISARC 2026 to the test suite ([#49](https://github.com/sunsided/task-allocation/pull/49) to [#53](https://github.com/sunsided/task-allocation/pull/53))
 
-### Changed
+### Known issues
 
-- Explain why tours may nail fewer joints than the optimum
-- Route nailing tours through a timber frame
-- Pin the cooperative transport scenario
-- Measure timed CCBBA on precedence chains
-- Score open multi-agent routes as a percentage of the optimum
-- Give every frame its own backoff slot
-- Say that bytes count airtime, lost copies included
-- Compare protocols on near-boundary and large-margin teams
-- Count useful copies and bytes in the simulator
-- Say where bid warping changes diminishing bids
-- Describe what the warping tests show, not why Example 2 settles
-- Count quiet rounds from an agent's initial view
-- Pin BW-TC re-announcements and document helper panics
-- Keep the deeper BW-TC exploration within the hour
-- Search exhaustively for the smallest ACBBA team that stalls
-- Keep the deeper CCBBA exploration within minutes
-- Explore every message schedule of tiny CCBBA teams
-- Key explored states by 128 bits, and check stability on the explored topology
-- Explore every message schedule of tiny CBBA teams
-- Stop claiming every re-announcing ACBBA run settles
-- Let CBBA agents broadcast only after their tables change
-- Mark ACBBA experimental and default to the 2011 table
-- Document ACBBA reset and push choices, and classify settled runs
-- Test timed CCBBA against a brute-force optimum
-
-### Dependencies
-
-- Bump the version to 0.2.0 for the Participant change
-
-### Removed
-
-- Drop the proptest seeds left by a mutation check
+- Timed CCBBA does not check the timing limits between tasks of one agent's own bundle while bidding, so tasks that must start together, such as a two-carrier pickup, can keep a team from settling. The ignored test `scenarios::transport::two_carriers_lift_together` reproduces it.
 
 ## [0.1.2](https://github.com/sunsided/task-allocation/compare/v0.1.1...v0.1.2) - 2026-11-23
 
