@@ -5,6 +5,7 @@
 mod gaca;
 mod margin;
 mod precedence;
+mod sdvrp;
 mod transport;
 
 use task_allocation::TaskId;
