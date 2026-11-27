@@ -26,9 +26,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Add hidden-node collisions and slow links between clusters to the simulated network ([#48](https://github.com/sunsided/task-allocation/pull/48))
 - Add benchmark scenarios after AC-DMTA, GACA, CTAS-AMP, JKROS and ISARC 2026 to the test suite ([#49](https://github.com/sunsided/task-allocation/pull/49) to [#53](https://github.com/sunsided/task-allocation/pull/53))
 
-### Known issues
+### Fixed
 
-- Timed CCBBA does not check the timing limits between tasks of one agent's own bundle while bidding, so tasks that must start together, such as a two-carrier pickup, can keep a team from settling. The ignored test `scenarios::transport::two_carriers_lift_together` reproduces it.
+- Fix timed CCBBA letting one agent take two tasks whose timing limits it cannot keep, such as two copies of a pickup that must start together, which kept such teams from settling ([#54](https://github.com/sunsided/task-allocation/pull/54))
 
 ## [0.1.2](https://github.com/sunsided/task-allocation/compare/v0.1.1...v0.1.2) - 2026-11-23
 
